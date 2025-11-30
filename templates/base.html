@@ -25,7 +25,9 @@
         <li class="nav-item"><a class="nav-link {% if request.endpoint=='dashboard' %}active{% endif %}" href="{{ url_for('dashboard') }}">Dashboard</a></li>
         <li class="nav-item"><a class="nav-link {% if request.endpoint=='transactions' %}active{% endif %}" href="{{ url_for('transactions') }}">Transactions</a></li>
         <li class="nav-item"><a class="nav-link {% if request.endpoint=='import_csv' %}active{% endif %}" href="{{ url_for('import_csv') }}">Import CSV</a></li>
-        <li class="nav-item"><a class="nav-link {% if request.endpoint=='import_ocr' %}active{% endif %}" href="{{ url_for('import_ocr') }}">Import OCR</a></li>
+        <li class="nav-item"><a class="nav-link {% if request.endpoint=='import_ocr' %}active{% endif %}" href="{{ url_for('import_ocr') }}">Import OCR</a>
+        <a href="/reports">Reports</a>
+</li>
         <li class="nav-item"><a class="nav-link {% if request.endpoint=='add_manual' %}active{% endif %}" href="{{ url_for('add_manual') }}">Add Manual</a></li>
       </ul>
     </div>

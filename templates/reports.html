@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container-fluid">
+  <h1>Reports</h1>
+  <p class="text-muted">Monthly income, spending, and net trend.</p>
+
+  <div class="row mt-4">
+    <div class="col-md-6">
+      <div class="card">
+        <div class="card-header">Monthly Income vs Spending</div>
+        <div class="card-body">
+          <canvas id="monthlyIncomeSpendingChart"></canvas>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-6">
+      <div class="card">
+        <div class="card-header">Monthly Net Trend</div>
+        <div class="card-body">
+          <canvas id="monthlyNetChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const monthlyData = {{ monthly|tojson }};
+  const mLabels = monthlyData.labels || [];
+  const mIncome = monthlyData.income || [];
+  const mSpending = monthlyData.spending || [];
+  const mNet = monthlyData.net || [];
+
+  if (mLabels.length) {
+    // Bar: income vs spending
+    const ctxBar = document.getElementById('monthlyIncomeSpendingChart').getContext('2d');
+    new Chart(ctxBar, {
+      type: 'bar',
+      data: {
+        labels: mLabels,
+        datasets: [
+          {
+            label: 'Income',
+            data: mIncome
+          },
+          {
+            label: 'Spending',
+            data: mSpending
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          x: { stacked: false },
+          y: { beginAtZero: true }
+        }
+      }
+    });
+
+    // Line: net
+    const ctxLine = document.getElementById('monthlyNetChart').getContext('2d');
+    new Chart(ctxLine, {
+      type: 'line',
+      data: {
+        labels: mLabels,
+        datasets: [
+          {
+            label: 'Net',
+            data: mNet,
+            fill: false
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          y: { beginAtZero: true }
+        }
+      }
+    });
+  }
+</script>
+{% endblock %}

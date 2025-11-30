@@ -51,4 +51,78 @@
     </div>
   </div>
 </div>
-{% endblock %}
+
+<!-- Monthly net overview (mini chart) -->
+<div class="card mt-4">
+  <div class="card-header">
+    Monthly Net Overview
+  </div>
+  <div class="card-body">
+    {% if monthly %}
+      <p class="mb-2">
+        <strong>Latest month:</strong>
+        {{ monthly[-1].month }}
+        — Income: {{ "%.2f"|format(monthly[-1].income) }},
+        Spending: {{ "%.2f"|format((monthly[-1].spending | abs)) }},
+        Net: {{ "%.2f"|format(monthly[-1].net) }}
+      </p>
+
+      <table class="table table-sm mb-0">
+        <thead>
+          <tr>
+            <th>Month</th>
+            <th class="text-end">Income</th>
+            <th class="text-end">Spending</th>
+            <th class="text-end">Net</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in monthly %}
+            <tr>
+              <td>{{ m.month }}</td>
+              <td class="text-end">{{ "%.2f"|format(m.income) }}</td>
+              <td class="text-end text-danger">{{ "%.2f"|format(m.spending | abs) }}</td>
+              <td class="text-end {% if m.net < 0 %}text-danger{% else %}text-success{% endif %}">
+                {{ "%.2f"|format(m.net) }}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="text-muted mb-0">
+        No monthly data yet. Import some transactions to see this overview.
+      </p>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+  const monthlyOverview = {{ monthly|default({"labels": [], "income": [], "spending": [], "net": []})|tojson }};
+  const moLabels = monthlyOverview.labels || [];
+  const moNet = monthlyOverview.net || [];
+
+  if (moLabels.length) {
+    const ctxOverview = document.getElementById('monthlyNetOverviewChart').getContext('2d');
+    new Chart(ctxOverview, {
+      type: 'line',
+      data: {
+        labels: moLabels,
+        datasets: [
+          {
+            label: 'Net',
+            data: moNet,
+            fill: false
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          y: { beginAtZero: true }
+        }
+      }
+    });
+  }
+</script>
+\n{% endblock %}
