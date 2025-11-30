@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="mb-3">Add Manual Transaction</h1>
+<form method="post" class="card p-3">
+  {{ form.hidden_tag() }}
+  <div class="row mb-3">
+    <div class="col-md-4">
+      {{ form.date.label(class="form-label") }}
+      {{ form.date(class="form-control") }}
+    </div>
+    <div class="col-md-4">
+      {{ form.amount.label(class="form-label") }}
+      {{ form.amount(class="form-control") }}
+    </div>
+    <div class="col-md-4">
+      {{ form.direction.label(class="form-label") }}
+      {{ form.direction(class="form-select") }}
+    </div>
+  </div>
+  <div class="mb-3">
+    {{ form.merchant.label(class="form-label") }}
+    {{ form.merchant(class="form-control") }}
+  </div>
+  <div class="mb-3">
+    {{ form.description.label(class="form-label") }}
+    {{ form.description(class="form-control") }}
+  </div>
+  <div class="row mb-3">
+    <div class="col-md-4">
+      {{ form.source_system.label(class="form-label") }}
+      {{ form.source_system(class="form-control") }}
+    </div>
+    <div class="col-md-4">
+      {{ form.account_name.label(class="form-label") }}
+      {{ form.account_name(class="form-control") }}
+    </div>
+    <div class="col-md-4">
+      {{ form.category.label(class="form-label") }}
+      {{ form.category(class="form-control") }}
+    </div>
+  </div>
+  <div class="mb-3">
+    {{ form.notes.label(class="form-label") }}
+    {{ form.notes(class="form-control", rows=3) }}
+  </div>
+
+  <button class="btn btn-success">Save</button>
+</form>
+{% endblock %}

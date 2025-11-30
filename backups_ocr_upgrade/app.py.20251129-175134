@@ -1,0 +1,368 @@
+import os
+import math
+import re
+import calendar
+from datetime import date, datetime
+
+from flask import (
+    Flask,
+    render_template,
+    request,
+    redirect,
+    url_for,
+    flash,
+)
+from sqlalchemy import func
+
+from config import Config
+from models import db, Transaction
+
+
+# ----------------- Date helpers -----------------
+
+
+def parse_date(value):
+    """
+    Try to parse a real YYYY-MM-DD (or common formats).
+    Returns datetime.date or None.
+    DOES NOT try to handle 'YYYY-MM-XX' – that is left for inference.
+    """
+    if value is None:
+        return None
+
+    # pandas NaN comes in as float
+    if isinstance(value, float):
+        if math.isnan(value):
+            return None
+        # fall through, we'll str() it
+
+    s = str(value).strip()
+    if not s or s.upper() == "NAN":
+        return None
+
+    # strict ISO
+    try:
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
+            return datetime.strptime(s, "%Y-%m-%d").date()
+    except ValueError:
+        pass
+
+    # common US-ish formats
+    for fmt in ("%m/%d/%Y", "%m/%d/%y", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except ValueError:
+            continue
+
+    # everything else: let inference handle it
+    return None
+
+
+def infer_date_from_context(raw_value, last_good_date):
+    """
+    Option C: OCR confidence mode.
+
+    If OCR produced e.g. '2025-11-XX' or '2025-11', we:
+      * If last_good_date is same year+month, reuse it
+      * Else use last day of that month
+    If nothing can be inferred, return None.
+    """
+    if raw_value is None:
+        return last_good_date
+
+    # handle pandas NaN
+    if isinstance(raw_value, float) and math.isnan(raw_value):
+        return last_good_date
+
+    s = str(raw_value).strip()
+    if not s:
+        return last_good_date
+
+    # Pattern like 2025-11-XX
+    m = re.fullmatch(r"(\d{4})-(\d{2})-XX", s, flags=re.IGNORECASE)
+    if m:
+        year = int(m.group(1))
+        month = int(m.group(2))
+
+        if (
+            last_good_date is not None
+            and last_good_date.year == year
+            and last_good_date.month == month
+        ):
+            # Heuristic: same month, same flow – reuse previous date
+            return last_good_date
+
+        # otherwise: assume month end
+        last_day = calendar.monthrange(year, month)[1]
+        return date(year, month, last_day)
+
+    # Pattern like 2025-11 (just year + month)
+    m2 = re.fullmatch(r"(\d{4})-(\d{2})", s)
+    if m2:
+        year = int(m2.group(1))
+        month = int(m2.group(2))
+        if (
+            last_good_date is not None
+            and last_good_date.year == year
+            and last_good_date.month == month
+        ):
+            return last_good_date
+        last_day = calendar.monthrange(year, month)[1]
+        return date(year, month, last_day)
+
+    # Unknown format: safest heuristic is to stick with last_good_date
+    return last_good_date
+
+
+# ----------------- App setup -----------------
+
+
+def create_app():
+    app = Flask(__name__)
+    app.config.from_object(Config)
+
+    # Fallbacks if config.py doesn't define these
+    basedir = os.path.abspath(os.path.dirname(__file__))
+    app.config.setdefault("UPLOAD_FOLDER", os.path.join(basedir, "uploads"))
+
+    db.init_app(app)
+
+    with app.app_context():
+        db.create_all()
+
+    # ------------- Routes ----------------
+
+    @app.route("/")
+    def dashboard():
+        # Totals
+        total_spending = (
+            db.session.query(func.sum(Transaction.amount))
+            .filter(Transaction.amount < 0)
+            .scalar()
+            or 0.0
+        )
+        total_income = (
+            db.session.query(func.sum(Transaction.amount))
+            .filter(Transaction.amount > 0)
+            .scalar()
+            or 0.0
+        )
+        net = total_income + total_spending
+
+        # Spending by category
+        cat_rows = (
+            db.session.query(
+                Transaction.category,
+                func.sum(Transaction.amount),
+            )
+            .group_by(Transaction.category)
+            .all()
+        )
+        by_category = [
+            {
+                "category": category or "Uncategorized",
+                "amount": float(total or 0.0),
+            }
+            for category, total in cat_rows
+        ]
+
+        # Daily net line
+        daily_rows = (
+            db.session.query(
+                Transaction.date,
+                func.sum(Transaction.amount),
+            )
+            .group_by(Transaction.date)
+            .order_by(Transaction.date)
+            .all()
+        )
+        daily_labels = [d.isoformat() for d, _ in daily_rows]
+        daily_values = [float(v or 0.0) for _, v in daily_rows]
+        daily_net = {"labels": daily_labels, "values": daily_values}
+
+        return render_template(
+            "dashboard.html",
+            total_spending=total_spending,
+            total_income=total_income,
+            net=net,
+            by_category=by_category,
+            daily_net=daily_net,
+        )
+
+    @app.route("/transactions")
+    def transactions():
+        txs = (
+            Transaction.query.order_by(
+                Transaction.date.desc(), Transaction.id.desc()
+            ).all()
+        )
+        return render_template("transactions.html", transactions=txs)
+
+    # ---------- CSV Import (now with Option C inference) ----------
+
+    @app.route("/import/csv", methods=["GET", "POST"])
+    def import_csv():
+        import pandas as pd  # local import to keep global deps lighter
+
+        if request.method == "GET":
+            return render_template("import_csv.html")
+
+        file = request.files.get("file")
+        if not file or file.filename == "":
+            flash("No file selected.", "danger")
+            return redirect(url_for("import_csv"))
+
+        try:
+            df = pd.read_csv(file)
+        except Exception as e:
+            flash(f"Could not read CSV: {e}", "danger")
+            return redirect(url_for("import_csv"))
+
+        required_cols = [
+            "Date",
+            "Source",
+            "Account",
+            "Direction",
+            "Amount",
+            "Merchant",
+            "Description",
+            "Category",
+            "Notes",
+        ]
+        missing = [c for c in required_cols if c not in df.columns]
+        if missing:
+            flash(
+                "Missing required columns: "
+                + ", ".join(missing)
+                + ". Expected columns like your spending_45days.csv.",
+                "danger",
+            )
+            return redirect(url_for("import_csv"))
+
+        imported = 0
+        skipped = 0
+        inferred_count = 0
+        last_good_date = None
+
+        for _, row in df.iterrows():
+            raw_date = row.get("Date")
+            dt = parse_date(raw_date)
+            original_date_str = str(raw_date) if raw_date is not None else ""
+
+            inferred = False
+            if dt is None:
+                # Option C: OCR confidence mode
+                dt = infer_date_from_context(raw_date, last_good_date)
+                if dt is None:
+                    skipped += 1
+                    continue
+                inferred = True
+                inferred_count += 1
+
+            last_good_date = dt
+
+            # Direction & amount
+            direction = str(row.get("Direction") or "").strip().lower()
+            try:
+                amount_val = float(row.get("Amount") or 0.0)
+            except (TypeError, ValueError):
+                skipped += 1
+                continue
+
+            if direction == "debit" and amount_val > 0:
+                amount_val = -amount_val
+            elif direction == "credit" and amount_val < 0:
+                amount_val = -amount_val
+
+            source = str(row.get("Source") or "").strip()
+            account = str(row.get("Account") or "").strip()
+            merchant = str(row.get("Merchant") or "").strip()
+            description = str(row.get("Description") or "").strip()
+            category = str(row.get("Category") or "").strip()
+
+            notes_val = row.get("Notes")
+            if isinstance(notes_val, float) and math.isnan(notes_val):
+                notes_val = ""
+            notes = str(notes_val or "").strip()
+
+            if inferred and original_date_str:
+                extra = f" Date inferred from '{original_date_str}'."
+                notes = (notes + " " + extra).strip()
+
+            tx = Transaction(
+                date=dt,
+                source_system=source,
+                account_name=account,
+                direction=direction,
+                amount=amount_val,
+                merchant=merchant,
+                description=description,
+                category=category,
+                notes=notes,
+            )
+            db.session.add(tx)
+            imported += 1
+
+        db.session.commit()
+        msg = (
+            f"Imported {imported} rows from CSV."
+            f" Inferred dates for {inferred_count} rows."
+        )
+        if skipped:
+            msg += f" Skipped {skipped} rows with unusable dates."
+        flash(msg, "success")
+        return redirect(url_for("transactions"))
+
+    # ---------- Placeholder for OCR & manual add (already wired in UI) ----------
+
+    @app.route("/import/ocr")
+    def import_ocr():
+        # We’ll hook this up to your screenshot/PDF OCR pipeline later.
+        flash(
+            "OCR import endpoint is wired but not yet implemented in this build.",
+            "info",
+        )
+        return redirect(url_for("dashboard"))
+
+    @app.route("/add/manual", methods=["GET", "POST"])
+    def add_manual():
+        if request.method == "GET":
+            return render_template("add_manual.html")
+
+        # very simple manual add form for now
+        form = request.form
+        raw_date = form.get("date")
+        dt = parse_date(raw_date) or date.today()
+
+        direction = (form.get("direction") or "debit").lower()
+        amount_str = form.get("amount") or "0"
+        try:
+            amount_val = float(amount_str)
+        except ValueError:
+            amount_val = 0.0
+        if direction == "debit" and amount_val > 0:
+            amount_val = -amount_val
+
+        tx = Transaction(
+            date=dt,
+            source_system=form.get("source") or "Manual",
+            account_name=form.get("account") or "",
+            direction=direction,
+            amount=amount_val,
+            merchant=form.get("merchant") or "",
+            description=form.get("description") or "",
+            category=form.get("category") or "",
+            notes=form.get("notes") or "",
+        )
+        db.session.add(tx)
+        db.session.commit()
+        flash("Manual transaction added.", "success")
+        return redirect(url_for("transactions"))
+
+    return app
+
+
+app = create_app()
+
+if __name__ == "__main__":
+    app.run(debug=True)
