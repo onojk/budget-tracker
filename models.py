@@ -4,7 +4,30 @@ db = SQLAlchemy()
 
 
 class Transaction(db.Model):
+    __tablename__ = "transaction"
+
     id = db.Column(db.Integer, primary_key=True)
+    # Optional: which OCR file this came from
+    file_checksum = db.Column(db.String(64), index=True, nullable=True)
+    source_filename = db.Column(db.String(255), nullable=True)
+
+    # Internal transfer/mirroring flags
+    is_transfer = db.Column(db.Boolean, default=False, nullable=False)
+
+    linked_transaction_id = db.Column(
+        db.Integer,
+        db.ForeignKey("transaction.id"),  # keep in sync with __tablename__
+        nullable=True,
+    )
+
+    linked_transaction = db.relationship(
+        "Transaction",
+        remote_side=[id],
+        uselist=False,
+        post_update=True,
+    )
+
+    # Core transaction fields
     date = db.Column(db.Date, nullable=False)
     source_system = db.Column(db.String(64))
     account_name = db.Column(db.String(64))
@@ -28,24 +51,11 @@ class Transaction(db.Model):
             "Notes": self.notes,
         }
 
-class CategoryRule(db.Model):
-    __tablename__ = "category_rules"
-
-    id = db.Column(db.Integer, primary_key=True)
-
-    # What we match on
-    merchant = db.Column(db.String(255), index=True, nullable=True)
-    account_name = db.Column(db.String(255), index=True, nullable=True)
-    method = db.Column(db.String(64), index=True, nullable=True)
-
-    # What we apply
-    category = db.Column(db.String(255), nullable=False)
-
-    # For debugging/analytics
-    use_count = db.Column(db.Integer, default=0)
-
     @classmethod
     def from_dict(cls, data):
+        """
+        Build a Transaction from a dict, using the same keys your importer expects.
+        """
         from datetime import date as _date
         import pandas as _pd
 
@@ -68,3 +78,23 @@ class CategoryRule(db.Model):
             category=data.get("Category", ""),
             notes=data.get("Notes", ""),
         )
+
+
+class CategoryRule(db.Model):
+    __tablename__ = "category_rules"
+
+    id = db.Column(db.Integer, primary_key=True)
+    # Optional: which OCR file this came from
+    file_checksum = db.Column(db.String(64), index=True, nullable=True)
+    source_filename = db.Column(db.String(255), nullable=True)
+
+    # What we match on
+    merchant = db.Column(db.String(255), index=True, nullable=True)
+    account_name = db.Column(db.String(255), index=True, nullable=True)
+    method = db.Column(db.String(64), index=True, nullable=True)
+
+    # What we apply
+    category = db.Column(db.String(255), nullable=False)
+
+    # For debugging/analytics
+    use_count = db.Column(db.Integer, default=0)
