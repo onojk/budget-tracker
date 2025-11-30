@@ -1,85 +1,122 @@
 import re
-from typing import List, Dict
-
-import pytesseract
-from pdf2image import convert_from_path
-from PIL import Image
+import os
+from pathlib import Path
+from datetime import datetime
 
 
-def extract_text_from_image(path: str) -> str:
-    img = Image.open(path)
-    text = pytesseract.image_to_string(img)
-    return text
+def _parse_ocr_text_file(path, default_source):
+    '''
+    Generic OCR parser:
 
+    - Reads the file as plain text
+    - For each line:
+        * find first date-like token (YYYY-MM-DD or MM/DD/YYYY or MM/DD/YY)
+        * find last amount-like token (-1322.15, $1,234.56, etc.)
+        * everything between date and amount is the description
+    - Returns a list of dicts in the format expected by app.py
+    '''
+    rows = []
+    try:
+        raw = Path(path).read_text(errors="ignore")
+    except Exception:
+        return rows
 
-def extract_text_from_pdf(path: str) -> str:
-    pages = convert_from_path(path)
-    text_chunks = []
-    for pg in pages:
-        text_chunks.append(pytesseract.image_to_string(pg))
-    return "\n".join(text_chunks)
+    # Date token patterns
+    date_re = re.compile(
+        r'^\d{4}-\d{2}-\d{2}$'          # 2025-11-29
+        r'|^\d{1,2}/\d{1,2}/\d{2,4}$'   # 11/29/2025 or 11/29/25
+    )
 
+    # Amount token pattern
+    amount_re = re.compile(r'^[-+]?\$?\d[\d,]*\.\d{2}$')
 
-def extract_transactions(text: str) -> List[Dict]:
-    """
-    Very simple starter parser.
-
-    Tries to catch lines like:
-      11/25 WALMART -59.97
-      2025-11-03 Starbucks 6.45
-    """
-
-    rows: List[Dict] = []
-    for line in text.splitlines():
-        ln = line.strip()
-        if not ln:
+    for line in raw.splitlines():
+        s = line.strip()
+        if not s:
             continue
 
-        # date + amount pattern (you can enhance this later per bank)
-        m = re.search(
-            r"(?P<date>\d{1,2}/\d{1,2}/\d{2,4}|\d{4}-\d{2}-\d{2}).*?(?P<amount>-?\$?\d+\.\d{2})",
-            ln,
-        )
-        if not m:
+        tokens = s.split()
+        if len(tokens) < 3:
             continue
 
-        dt = m.group("date")
-        amt = m.group("amount").replace("$", "")
-        merchant = ln  # crude default; refine later with custom templates
+        # ---------- find first date token ----------
+        date_idx = None
+        for i, t in enumerate(tokens):
+            if date_re.match(t):
+                date_idx = i
+                break
+        if date_idx is None:
+            continue
 
-        direction = "debit"
+        # ---------- find last amount token ----------
+        amount_idx = None
+        for i in range(len(tokens) - 1, -1, -1):
+            if amount_re.match(tokens[i]):
+                amount_idx = i
+                break
+        if amount_idx is None or amount_idx <= date_idx:
+            continue
+
+        # ---------- normalize date ----------
+        raw_date = tokens[date_idx]
         try:
-            if float(amt) > 0:
-                direction = "credit"
-        except ValueError:
-            pass
+            if '-' in raw_date:
+                dt = datetime.strptime(raw_date, '%Y-%m-%d')
+            else:
+                # MM/DD/YYYY or MM/DD/YY
+                month, day, year = raw_date.split('/')
+                if len(year) == 2:
+                    year = '20' + year
+                dt = datetime.strptime(f'{month}/{day}/{year}', '%m/%d/%Y')
+            date_str = dt.date().isoformat()
+        except Exception:
+            continue
 
-        row = {
-            "Date": dt,
-            "Source": "OCR",
-            "Account": "OCR",
-            "Direction": direction,
-            "Amount": amt,
-            "Merchant": merchant,
-            "Description": merchant,
-            "Category": "",
-            "Notes": "Extracted via OCR",
-        }
-        rows.append(row)
+        # ---------- description ----------
+        desc = " ".join(tokens[date_idx + 1:amount_idx]).strip()
+        if not desc:
+            continue
+
+        # ---------- amount ----------
+        amt_raw = tokens[amount_idx]
+        try:
+            amt_clean = amt_raw.replace(',', '').replace('$', '')
+            amount = float(amt_clean)
+        except Exception:
+            continue
+
+        direction = 'debit' if amount < 0 else 'credit'
+
+        rows.append({
+            'Date': date_str,
+            'Amount': abs(amount),          # sign handled via Direction
+            'Direction': direction,
+            'Source': default_source,
+            'Account': '',
+            'Merchant': desc,
+            'Description': desc,
+            'Category': '',
+            'Notes': f'from {os.path.basename(path)}',
+        })
 
     return rows
 
 
-def process_ocr_files(files: List[str]) -> List[Dict]:
-    all_rows: List[Dict] = []
-    for path in files:
-        path_lower = path.lower()
-        if path_lower.endswith(".pdf"):
-            text = extract_text_from_pdf(path)
-        else:
-            text = extract_text_from_image(path)
+def process_screenshot_files(file_paths):
+    '''
+    Process OCR text files from account screenshots.
+    '''
+    rows = []
+    for p in file_paths:
+        rows.extend(_parse_ocr_text_file(p, 'Screenshot OCR'))
+    return rows
 
-        tx_rows = extract_transactions(text)
-        all_rows.extend(tx_rows)
 
-    return all_rows
+def process_statement_files(file_paths):
+    '''
+    Process OCR text files from full statements.
+    '''
+    rows = []
+    for p in file_paths:
+        rows.extend(_parse_ocr_text_file(p, 'Statement OCR'))
+    return rows

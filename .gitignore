@@ -26,3 +26,10 @@ config.py
 # IDE files
 .vscode/
 .idea/
+
+# Backup and temp files
+*.bak*
+backups_ocr_upgrade/
+os
+pd
+*.sh
