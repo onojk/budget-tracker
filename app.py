@@ -3,11 +3,12 @@ from pathlib import Path
 import shutil
 import subprocess
 from datetime import datetime, date
-from ocr_pipeline import process_screenshot_files, process_statement_files
-from datetime import datetime
-from sqlalchemy import create_engine, Column, Integer, String, Float, Date, DateTime, func, or_
-MIN_ALLOWED_DATE = date(2024, 1, 1)
+from collections import OrderedDict
 
+from ocr_pipeline import process_screenshot_files, process_statement_files
+from sqlalchemy import create_engine, Column, Integer, String, Float, Date, DateTime, func, or_
+
+MIN_ALLOWED_DATE = date(2024, 1, 1)
 
 from flask import (
     Flask,
@@ -27,7 +28,6 @@ from wtforms import (
     TextAreaField,
 )
 from wtforms.validators import DataRequired
-from sqlalchemy import func
 import pandas as pd
 
 from config import Config
@@ -43,7 +43,12 @@ import ocr_pipeline
 
 
 class ManualTransactionForm(FlaskForm):
-    date = DateField("Date", validators=[DataRequired()], default=date.today, render_kw={"min": "2024-01-01"})
+    date = DateField(
+        "Date",
+        validators=[DataRequired()],
+        default=date.today,
+        render_kw={"min": "2024-01-01"},
+    )
     amount = FloatField("Amount", validators=[DataRequired()])
     merchant = StringField("Merchant")
     description = StringField("Description")
@@ -127,9 +132,11 @@ def coerce_amount(raw_amount, direction: str) -> float:
 
 
 def is_duplicate_transaction(session, date, amount, merchant, account_name, *_, **__):
-    """Return True if a transaction with the same date, amount, merchant,
+    """
+    Return True if a transaction with the same date, amount, merchant,
     and account already exists. Extra args are accepted and ignored so we can
-    call this helper with (date, amount, merchant, description, account, source)."""
+    call this helper with (date, amount, merchant, description, account, source).
+    """
     q = session.query(Transaction).filter(
         Transaction.date == date,
         Transaction.amount == amount,
@@ -138,83 +145,11 @@ def is_duplicate_transaction(session, date, amount, merchant, account_name, *_, 
     )
     return session.query(q.exists()).scalar()
 
-# -------------------------------------------------------------------
-# Routes
-# -------------------------------------------------------------------
-
-
-@app.route("/")
-def dashboard():
-    # Totals
-    total_spending = (
-        db.session.query(func.sum(Transaction.amount))
-        .filter(Transaction.amount < 0)
-        .scalar()
-        or 0.0
-    )
-    total_income = (
-        db.session.query(func.sum(Transaction.amount))
-        .filter(Transaction.amount > 0)
-        .scalar()
-        or 0.0
-    )
-    net = total_income + total_spending
-
-    # Spending by category (absolute values for chart)
-    cat_rows = (
-        db.session.query(
-            Transaction.category,
-            func.sum(Transaction.amount),
-        )
-        .group_by(Transaction.category)
-        .all()
-    )
-
-    cat_labels = []
-    cat_values = []
-    for cat, amt in cat_rows:
-        label = cat or "Uncategorized"
-        cat_labels.append(label)
-        cat_values.append(abs(float(amt or 0.0)))
-
-    # Chart-ready structure: works with most Chart.js setups
-    by_category = {
-        "labels": cat_labels,
-        "data": cat_values,    # if your JS uses .data
-        "values": cat_values,  # if your JS uses .values
-    }
-
-    # Daily running net
-    daily_rows = (
-        db.session.query(
-            Transaction.date,
-            func.sum(Transaction.amount),
-        )
-        .group_by(Transaction.date)
-        .order_by(Transaction.date)
-        .all()
-    )
-
-    running = 0.0
-    daily_net = []
-    for d, amt in daily_rows:
-        running += float(amt or 0.0)
-        daily_net.append({"date": d.isoformat(), "net": round(running, 2)})
-
-    return render_template(
-        "dashboard.html",
-        net=round(net, 2),
-        total_spending=round(total_spending, 2),
-        total_income=round(total_income, 2),
-        cat_labels=cat_labels,
-        cat_values=cat_values,
-        by_category=by_category,
-        daily_net=daily_net,
-    )
 
 # ======================================================================
 # Category Rule Engine
 # ======================================================================
+
 
 def guess_category(db, merchant, account_name, method):
     """
@@ -255,6 +190,7 @@ def guess_category(db, merchant, account_name, method):
 def learn_category_from_transaction(db, merchant, account_name, method, chosen_category):
     """
     Save or update a CategoryRule when the user changes the category manually.
+    (Not yet wired into any route, but ready for future use.)
     """
     merchant = (merchant or "").strip()
     account_name = (account_name or "").strip()
@@ -269,11 +205,9 @@ def learn_category_from_transaction(db, merchant, account_name, method, chosen_c
     )
 
     if rule:
-        # Update category + metadata
         rule.category = chosen_category
         rule.use_count += 1
     else:
-        # Create new rule
         rule = CategoryRule(
             merchant=merchant,
             account_name=account_name,
@@ -284,6 +218,153 @@ def learn_category_from_transaction(db, merchant, account_name, method, chosen_c
         db.session.add(rule)
 
     db.session.commit()
+
+
+# -------------------------------------------------------------------
+# Routes
+
+def build_monthly_summary(txs):
+    """Return list of {year, month, label, income, spending, net}."""
+    monthly_map = OrderedDict()
+
+    for tx in txs:
+        if not tx.date:
+            continue
+
+        key = tx.date.strftime("%Y-%m")
+
+        bucket = monthly_map.setdefault(
+            key,
+            {
+                "year": tx.date.year,
+                "month": tx.date.month,
+                "label": tx.date.strftime("%b %Y"),
+                "income": 0.0,
+                "spending": 0.0,
+                "net": 0.0,
+            },
+        )
+
+        amt = float(tx.amount or 0)
+        if amt >= 0:
+            bucket["income"] += amt
+        else:
+            bucket["spending"] += amt
+
+        bucket["net"] += amt
+
+    return list(monthly_map.values())
+
+# -------------------------------------------------------------------
+
+
+@app.route("/")
+def dashboard():
+    # Totals
+    total_spending = (
+        db.session.query(func.sum(Transaction.amount))
+        .filter(Transaction.amount < 0)
+        .scalar()
+        or 0.0
+    )
+    total_income = (
+        db.session.query(func.sum(Transaction.amount))
+        .filter(Transaction.amount > 0)
+        .scalar()
+        or 0.0
+    )
+    net = total_income + total_spending
+
+    # Spending by category (absolute values for chart)
+    cat_rows = (
+        db.session.query(
+            Transaction.category,
+            func.sum(Transaction.amount),
+        )
+        .group_by(Transaction.category)
+        .all()
+    )
+
+    cat_labels = []
+    cat_values = []
+    for cat, amt in cat_rows:
+        label = cat or "Uncategorized"
+        cat_labels.append(label)
+        cat_values.append(abs(float(amt or 0.0)))
+
+    by_category = {
+        "labels": cat_labels,
+        "data": cat_values,
+        "values": cat_values,
+    }
+
+    # Daily running net
+    daily_rows = (
+        db.session.query(
+            Transaction.date,
+            func.sum(Transaction.amount),
+        )
+        .group_by(Transaction.date)
+        .order_by(Transaction.date)
+        .all()
+    )
+
+    running = 0.0
+    daily_net = []
+    for d, amt in daily_rows:
+        running += float(amt or 0.0)
+        daily_net.append({"date": d.isoformat(), "net": round(running, 2)})
+
+    # --- Monthly aggregation for dashboard "Monthly Net Overview" ---
+    txs = Transaction.query.order_by(Transaction.date.asc()).all()
+    monthly_map = OrderedDict()
+
+    for tx in txs:
+        if not tx.date:
+            continue
+
+        key = tx.date.strftime("%Y-%m")  # e.g. "2025-11"
+        bucket = monthly_map.setdefault(
+            key,
+            {
+                "year": tx.date.year,
+                "month": tx.date.month,
+                "label": tx.date.strftime("%b %Y"),  # "Nov 2025"
+                "income": 0.0,
+                "spending": 0.0,
+                "net": 0.0,
+            },
+        )
+
+        amt = float(tx.amount or 0)
+        if amt >= 0:
+            bucket["income"] += amt
+        else:
+            bucket["spending"] += amt
+        bucket["net"] += amt
+
+    monthly = list(monthly_map.values())
+
+    if monthly:
+        monthly_overview_message = ""
+    else:
+        monthly_overview_message = (
+            "No monthly data yet. Import some transactions to see this overview."
+        )
+
+    return render_template(
+        "dashboard.html",
+        net=net,
+        total_spending=total_spending,
+        total_income=total_income,
+        cat_labels=cat_labels,
+        cat_values=cat_values,
+        by_category=by_category,
+        daily_net=daily_net,
+        monthly=monthly,
+        monthly_overview_message=monthly_overview_message,
+    )
+
 
 @app.route("/transactions")
 def transactions():
@@ -345,15 +426,15 @@ def import_csv():
 
         msg = f"Imported {imported} rows from CSV."
         if skipped_invalid_dates:
-            msg += f" Skipped {skipped_invalid_dates} rows with invalid dates (e.g. '2025-11-XX')."
+            msg += (
+                f" Skipped {skipped_invalid_dates} rows with invalid dates"
+                " (e.g. '2025-11-XX')."
+            )
         flash(msg, "success")
         return redirect(url_for("transactions"))
 
     # GET
     return render_template("import_csv.html")
-
-
-
 
 
 @app.route("/import/ocr", methods=["GET", "POST"])
@@ -377,7 +458,7 @@ def import_ocr():
 
         imported = 0
         for r in rows:
-            date_obj, reason = parse_date_safer(r.get("Date"))
+            date_obj, reason = parse_date_safe(r.get("Date"))
             if date_obj is None:
                 continue
 
@@ -391,9 +472,7 @@ def import_ocr():
             method = normalize_string(r.get("Method"))
             raw_category = normalize_string(r.get("Category"))
 
-            # -----------------------------
             # Auto-category via rule engine
-            # -----------------------------
             category = raw_category or "Uncategorized"
             auto_cat = guess_category(
                 db,
@@ -404,14 +483,14 @@ def import_ocr():
             if auto_cat:
                 category = auto_cat
 
-            # Skip duplicates (same as before)
+            # Skip duplicates
             if is_duplicate_transaction(
                 db.session,
                 date_obj,
                 amount,
                 merchant,
-                description,
                 account_name,
+                description,
                 source_system,
             ):
                 continue
@@ -424,7 +503,7 @@ def import_ocr():
                 amount=amount,
                 merchant=merchant,
                 description=description,
-                method=method,          # remove this line if your model has no 'method' field
+                # method is only stored on CategoryRule, not Transaction
                 category=category,
                 notes=normalize_string(r.get("Notes")),
             )
@@ -435,6 +514,7 @@ def import_ocr():
         flash(f"OCR import complete. Imported {imported} transactions.", "success")
         return redirect(url_for("transactions"))
 
+    # GET
     return render_template("import_ocr.html")
 
 
@@ -466,7 +546,10 @@ def import_scan():
         elif ext == ".pdf":
             out_txt = Path(statements) / f"{p.stem}_ocr.txt"
             try:
-                subprocess.run(["pdftotext", "-layout", str(p), str(out_txt)], check=True)
+                subprocess.run(
+                    ["pdftotext", "-layout", str(p), str(out_txt)],
+                    check=True,
+                )
                 converted_pdfs += 1
             except Exception as e:
                 print(f"[SCAN] Failed to convert {p}: {e}")
@@ -474,9 +557,11 @@ def import_scan():
 
     flash(
         f"Scanned inbox: moved {moved_txt} text files, converted {converted_pdfs} PDFs.",
-        "success"
+        "success",
     )
     return redirect(url_for("import_ocr"))
+
+
 @app.route("/add/manual", methods=["GET", "POST"])
 def add_manual():
     form = ManualTransactionForm()
