@@ -2,37 +2,45 @@
 
 {% block content %}
 <div class="container mt-4">
-  <h2>Import OCR Data</h2>
+  <h1>Import via OCR</h1>
+
   <p class="text-muted">
-    Upload OCR output files (.txt or .csv) or just run the import to scan any files
-    already saved under <code>uploads/screenshots/</code> and <code>uploads/statements/</code>.
+    This page imports transactions from pre-processed OCR text and PDF files.
+    Screenshots and statements are read from the configured folders on disk.
   </p>
 
-  <form method="post" enctype="multipart/form-data" class="mb-4">
-    <div class="mb-3">
-      <label class="form-label">Screenshot OCR files (.txt / .csv)</label>
-      <input class="form-control" type="file" name="screenshot_files" multiple>
-      <div class="form-text">
-        Use this for OCR text exported from transaction screenshots.
-      </div>
+  <!-- Run OCR over existing uploads/screenshots + uploads/statements -->
+  <div class="card mb-4">
+    <div class="card-body">
+      <h5 class="card-title">Run OCR Import</h5>
+      <p class="card-text">
+        Processes all <code>.txt</code> and <code>.pdf</code> files currently
+        in <code>uploads/screenshots</code> and <code>uploads/statements</code>.
+      </p>
+      <form method="post" action="{{ url_for('import_ocr') }}">
+        <button type="submit" class="btn btn-primary">
+          Run OCR Import
+        </button>
+      </form>
     </div>
+  </div>
 
-    <div class="mb-3">
-      <label class="form-label">Statement OCR files (.txt / .csv)</label>
-      <input class="form-control" type="file" name="statement_files" multiple>
-      <div class="form-text">
-        Use this for OCR text from PDF/card/bank statements.
-      </div>
+  <!-- Inbox scan -->
+  <div class="card">
+    <div class="card-body">
+      <h5 class="card-title">Scan Inbox Folder</h5>
+      <p class="card-text">
+        Drop <code>.txt</code> and <code>.pdf</code> files into
+        <code>imports_inbox/</code> (inside your project directory).
+        Clicking the button below will scan that folder, move files into the
+        correct OCR upload folders, and return you here.
+      </p>
+      <form method="post" action="{{ url_for('import_scan') }}">
+        <button type="submit" class="btn btn-secondary">
+          Scan Inbox and Move Files
+        </button>
+      </form>
     </div>
-
-    <button type="submit" class="btn btn-primary">
-      Import OCR Data
-    </button>
-  </form>
-
-  <p class="text-muted small">
-    The importer will automatically skip any rows with invalid dates or dates
-    before <strong>2024-01-01</strong>.
-  </p>
+  </div>
 </div>
 {% endblock %}

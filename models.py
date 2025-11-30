@@ -28,6 +28,22 @@ class Transaction(db.Model):
             "Notes": self.notes,
         }
 
+class CategoryRule(db.Model):
+    __tablename__ = "category_rules"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    # What we match on
+    merchant = db.Column(db.String(255), index=True, nullable=True)
+    account_name = db.Column(db.String(255), index=True, nullable=True)
+    method = db.Column(db.String(64), index=True, nullable=True)
+
+    # What we apply
+    category = db.Column(db.String(255), nullable=False)
+
+    # For debugging/analytics
+    use_count = db.Column(db.Integer, default=0)
+
     @classmethod
     def from_dict(cls, data):
         from datetime import date as _date

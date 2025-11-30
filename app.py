@@ -1,5 +1,11 @@
 import os
+from pathlib import Path
+import shutil
+import subprocess
 from datetime import datetime, date
+from ocr_pipeline import process_screenshot_files, process_statement_files
+from datetime import datetime
+from sqlalchemy import create_engine, Column, Integer, String, Float, Date, DateTime, func, or_
 MIN_ALLOWED_DATE = date(2024, 1, 1)
 
 
@@ -25,7 +31,7 @@ from sqlalchemy import func
 import pandas as pd
 
 from config import Config
-from models import db, Transaction
+from models import db, Transaction, CategoryRule
 
 # Import the module only; we'll check for functions with hasattr
 import ocr_pipeline
@@ -120,6 +126,18 @@ def coerce_amount(raw_amount, direction: str) -> float:
     return amt
 
 
+def is_duplicate_transaction(session, date, amount, merchant, account_name, *_, **__):
+    """Return True if a transaction with the same date, amount, merchant,
+    and account already exists. Extra args are accepted and ignored so we can
+    call this helper with (date, amount, merchant, description, account, source)."""
+    q = session.query(Transaction).filter(
+        Transaction.date == date,
+        Transaction.amount == amount,
+        Transaction.merchant == merchant,
+        Transaction.account_name == account_name,
+    )
+    return session.query(q.exists()).scalar()
+
 # -------------------------------------------------------------------
 # Routes
 # -------------------------------------------------------------------
@@ -194,6 +212,78 @@ def dashboard():
         daily_net=daily_net,
     )
 
+# ======================================================================
+# Category Rule Engine
+# ======================================================================
+
+def guess_category(db, merchant, account_name, method):
+    """
+    Try to guess the category based on prior user selections.
+    Looks for exact matches first, then partial matches.
+    """
+    merchant = (merchant or "").strip()
+    account_name = (account_name or "").strip()
+    method = (method or "").strip()
+
+    # 1) Exact merchant/account/method match
+    rule = (
+        db.session.query(CategoryRule)
+        .filter(CategoryRule.merchant == merchant)
+        .filter(CategoryRule.account_name == account_name)
+        .filter(CategoryRule.method == method)
+        .first()
+    )
+    if rule:
+        rule.use_count += 1
+        db.session.commit()
+        return rule.category
+
+    # 2) Match merchant only
+    rule = (
+        db.session.query(CategoryRule)
+        .filter(CategoryRule.merchant == merchant)
+        .first()
+    )
+    if rule:
+        rule.use_count += 1
+        db.session.commit()
+        return rule.category
+
+    return None
+
+
+def learn_category_from_transaction(db, merchant, account_name, method, chosen_category):
+    """
+    Save or update a CategoryRule when the user changes the category manually.
+    """
+    merchant = (merchant or "").strip()
+    account_name = (account_name or "").strip()
+    method = (method or "").strip()
+
+    rule = (
+        db.session.query(CategoryRule)
+        .filter(CategoryRule.merchant == merchant)
+        .filter(CategoryRule.account_name == account_name)
+        .filter(CategoryRule.method == method)
+        .first()
+    )
+
+    if rule:
+        # Update category + metadata
+        rule.category = chosen_category
+        rule.use_count += 1
+    else:
+        # Create new rule
+        rule = CategoryRule(
+            merchant=merchant,
+            account_name=account_name,
+            method=method,
+            category=chosen_category,
+            use_count=1,
+        )
+        db.session.add(rule)
+
+    db.session.commit()
 
 @app.route("/transactions")
 def transactions():
@@ -264,119 +354,129 @@ def import_csv():
 
 
 
+
+
 @app.route("/import/ocr", methods=["GET", "POST"])
 def import_ocr():
-    """
-    Use OCR outputs if ocr_pipeline exposes helpers.
-
-    Now supports:
-    - Uploading OCR output files (.txt / .csv) via browser
-    - Scanning any existing files under uploads/screenshots and uploads/statements
-    """
-    screenshot_folder = app.config.get("SCREENSHOT_FOLDER", "uploads/screenshots")
-    statement_folder = app.config.get("STATEMENT_FOLDER", "uploads/statements")
-    os.makedirs(screenshot_folder, exist_ok=True)
-    os.makedirs(statement_folder, exist_ok=True)
-
+    """Import transactions from OCR text files in uploads/screenshots and uploads/statements."""
     if request.method == "POST":
-        # 1) Save newly uploaded files into the right folders
-        uploaded_screens = request.files.getlist("screenshot_files")
-        uploaded_statements = request.files.getlist("statement_files")
+        base = app.root_path
+        screenshot_dir = os.path.join(base, "uploads", "screenshots")
+        statement_dir = os.path.join(base, "uploads", "statements")
+        os.makedirs(screenshot_dir, exist_ok=True)
+        os.makedirs(statement_dir, exist_ok=True)
 
-        for f in uploaded_screens:
-            if not f or f.filename == "":
-                continue
-            fname = secure_filename(f.filename)
-            if not fname:
-                continue
-            dest = os.path.join(screenshot_folder, fname)
-            f.save(dest)
-
-        for f in uploaded_statements:
-            if not f or f.filename == "":
-                continue
-            fname = secure_filename(f.filename)
-            if not fname:
-                continue
-            dest = os.path.join(statement_folder, fname)
-            f.save(dest)
-
-        # 2) Collect all OCR files on disk
-        screenshot_paths = []
-        if os.path.isdir(screenshot_folder):
-            screenshot_paths = [
-                os.path.join(screenshot_folder, f)
-                for f in sorted(os.listdir(screenshot_folder))
-                if f.lower().endswith((".txt", ".csv"))
-            ]
-
-        statement_paths = []
-        if os.path.isdir(statement_folder):
-            statement_paths = [
-                os.path.join(statement_folder, f)
-                for f in sorted(os.listdir(statement_folder))
-                if f.lower().endswith((".txt", ".csv"))
-            ]
+        screenshot_files = sorted(str(p) for p in Path(screenshot_dir).glob("*.txt"))
+        statement_files = sorted(str(p) for p in Path(statement_dir).glob("*.txt"))
 
         rows = []
-
-        # Screenshots
-        if screenshot_paths:
-            if hasattr(ocr_pipeline, "process_screenshot_files"):
-                rows.extend(ocr_pipeline.process_screenshot_files(screenshot_paths))
-            else:
-                flash(
-                    "OCR: process_screenshot_files() not found in ocr_pipeline.py; "
-                    "screenshots were skipped.",
-                    "warning",
-                )
-
-        # Statements
-        if statement_paths:
-            if hasattr(ocr_pipeline, "process_statement_files"):
-                rows.extend(ocr_pipeline.process_statement_files(statement_paths))
-            else:
-                flash(
-                    "OCR: process_statement_files() not found in ocr_pipeline.py; "
-                    "statements were skipped.",
-                    "warning",
-                )
+        if screenshot_files:
+            rows.extend(process_screenshot_files(screenshot_files))
+        if statement_files:
+            rows.extend(process_statement_files(statement_files))
 
         imported = 0
         for r in rows:
-            parsed_date, err = parse_date_safe(r.get("Date"))
-            if parsed_date is None:
+            date_obj, reason = parse_date_safer(r.get("Date"))
+            if date_obj is None:
                 continue
 
-            direction = normalize_string(r.get("Direction") or "debit")
+            direction = (r.get("Direction") or "debit").lower()
             amount = coerce_amount(r.get("Amount"), direction)
 
+            merchant = normalize_string(r.get("Merchant"))
+            description = normalize_string(r.get("Description"))
+            account_name = normalize_string(r.get("Account"))
+            source_system = normalize_string(r.get("Source"))
+            method = normalize_string(r.get("Method"))
+            raw_category = normalize_string(r.get("Category"))
+
+            # -----------------------------
+            # Auto-category via rule engine
+            # -----------------------------
+            category = raw_category or "Uncategorized"
+            auto_cat = guess_category(
+                db,
+                merchant=merchant,
+                account_name=account_name,
+                method=method,
+            )
+            if auto_cat:
+                category = auto_cat
+
+            # Skip duplicates (same as before)
+            if is_duplicate_transaction(
+                db.session,
+                date_obj,
+                amount,
+                merchant,
+                description,
+                account_name,
+                source_system,
+            ):
+                continue
+
             tx = Transaction(
-                date=parsed_date,
-                source_system=normalize_string(r.get("Source")),
-                account_name=normalize_string(r.get("Account")),
+                date=date_obj,
+                source_system=source_system,
+                account_name=account_name,
                 direction=direction,
                 amount=amount,
-                merchant=normalize_string(r.get("Merchant")),
-                description=normalize_string(r.get("Description")),
-                category=normalize_string(r.get("Category")),
+                merchant=merchant,
+                description=description,
+                method=method,          # remove this line if your model has no 'method' field
+                category=category,
                 notes=normalize_string(r.get("Notes")),
             )
             db.session.add(tx)
             imported += 1
 
         db.session.commit()
-        flash(
-            f"OCR import complete. Imported {imported} transactions "
-            f"(screenshots + statements combined).",
-            "success",
-        )
+        flash(f"OCR import complete. Imported {imported} transactions.", "success")
         return redirect(url_for("transactions"))
 
-    # GET
     return render_template("import_ocr.html")
 
 
+@app.route("/import/scan", methods=["POST"])
+def import_scan():
+    """Scan imports_inbox for .txt and .pdf, convert PDFs, move them into uploads folders."""
+    base = app.root_path
+    inbox = os.path.join(base, "imports_inbox")
+    screenshots = os.path.join(base, "uploads", "screenshots")
+    statements = os.path.join(base, "uploads", "statements")
+
+    os.makedirs(inbox, exist_ok=True)
+    os.makedirs(screenshots, exist_ok=True)
+    os.makedirs(statements, exist_ok=True)
+
+    moved_txt = 0
+    converted_pdfs = 0
+
+    for p in Path(inbox).iterdir():
+        if not p.is_file():
+            continue
+
+        ext = p.suffix.lower()
+
+        if ext == ".txt":
+            p.replace(Path(screenshots) / p.name)
+            moved_txt += 1
+
+        elif ext == ".pdf":
+            out_txt = Path(statements) / f"{p.stem}_ocr.txt"
+            try:
+                subprocess.run(["pdftotext", "-layout", str(p), str(out_txt)], check=True)
+                converted_pdfs += 1
+            except Exception as e:
+                print(f"[SCAN] Failed to convert {p}: {e}")
+            continue
+
+    flash(
+        f"Scanned inbox: moved {moved_txt} text files, converted {converted_pdfs} PDFs.",
+        "success"
+    )
+    return redirect(url_for("import_ocr"))
 @app.route("/add/manual", methods=["GET", "POST"])
 def add_manual():
     form = ManualTransactionForm()
