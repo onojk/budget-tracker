@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="mb-3">Import via OCR</h1>
+<form method="post" enctype="multipart/form-data" class="card p-3">
+  <div class="row mb-3">
+    <div class="col-md-6">
+      <label class="form-label">Source System (Chase, BoA, PayPal, Venmo, ...)</label>
+      <input class="form-control" type="text" name="source_system" placeholder="Chase / Venmo / PayPal / BoA">
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Account Name</label>
+      <input class="form-control" type="text" name="account_name" placeholder="Premier Plus 9765, Adv Plus 0205, etc.">
+    </div>
+  </div>
+
+  <div class="mb-3">
+    <label class="form-label">Screenshots (PNG/JPG)</label>
+    <input class="form-control" type="file" name="screenshots" multiple>
+    <div class="form-text">
+      Tip: Upload screenshots in chronological order for easier debugging.
+    </div>
+  </div>
+
+  <div class="mb-3">
+    <label class="form-label">PDF Statements</label>
+    <input class="form-control" type="file" name="statements" multiple>
+  </div>
+
+  <button class="btn btn-primary">Run OCR & Import</button>
+</form>
+{% endblock %}

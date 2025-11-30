@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="mb-4">Dashboard</h1>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="card text-bg-light h-100">
+      <div class="card-body">
+        <h6 class="card-title text-uppercase small">Net (Income - Spending)</h6>
+        <h2 class="{% if net >= 0 %}text-success{% else %}text-danger{% endif %}">
+          {{ "%.2f"|format(net) }}
+        </h2>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card text-bg-light h-100">
+      <div class="card-body">
+        <h6 class="card-title text-uppercase small">Total Spending</h6>
+        <h2 class="text-danger">{{ "%.2f"|format(total_spending) }}</h2>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card text-bg-light h-100">
+      <div class="card-body">
+        <h6 class="card-title text-uppercase small">Total Income</h6>
+        <h2 class="text-success">{{ "%.2f"|format(total_income) }}</h2>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-body">
+        <h6 class="card-title text-uppercase small">Spending by Category</h6>
+        <canvas id="categoryChart"
+                data-category-json='{{ by_category|tojson }}'></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-body">
+        <h6 class="card-title text-uppercase small">Daily Net Amount</h6>
+        <canvas id="dailyNetChart"
+                data-daily-json='{{ daily_net|tojson }}'></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

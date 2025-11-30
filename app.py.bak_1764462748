@@ -1,0 +1,354 @@
+# app.py
+import os
+from datetime import date
+
+from flask import (
+    Flask,
+    render_template,
+    request,
+    redirect,
+    url_for,
+    flash,
+)
+
+from flask_wtf import FlaskForm
+from wtforms import (
+    StringField,
+    FloatField,
+    DateField,
+    SelectField,
+    TextAreaField,
+)
+from wtforms.validators import DataRequired
+
+import pandas as pd
+from sqlalchemy import func
+
+from config import Config
+from models import db, Transaction
+from parsers import parse_date
+from ocr_pipeline import process_screenshot_files, process_statement_files
+
+
+# ----------------- Forms -----------------
+
+
+class ManualTransactionForm(FlaskForm):
+    date = DateField("Date", validators=[DataRequired()], default=date.today)
+    amount = FloatField("Amount", validators=[DataRequired()])
+    merchant = StringField("Merchant")
+    description = StringField("Description")
+    source_system = StringField("Source System", default="Manual")
+    account_name = StringField("Account")
+    category = StringField("Category")
+    direction = SelectField(
+        "Direction",
+        choices=[("debit", "Debit"), ("credit", "Credit")],
+        default="debit",
+    )
+    notes = TextAreaField("Notes")
+
+
+# ----------------- App Factory -----------------
+
+
+def create_app():
+    app = Flask(__name__)
+    app.config.from_object(Config)
+
+    # init DB
+    db.init_app(app)
+    with app.app_context():
+        db.create_all()
+
+    # ------------- Routes ----------------
+
+    @app.route("/")
+    def dashboard():
+        # totals
+        total_spending = (
+            db.session.query(func.sum(Transaction.amount))
+            .filter(Transaction.amount < 0)
+            .scalar()
+            or 0.0
+        )
+        total_income = (
+            db.session.query(func.sum(Transaction.amount))
+            .filter(Transaction.amount > 0)
+            .scalar()
+            or 0.0
+        )
+        net = total_income + total_spending
+
+        # spending by category (negative sums for spend)
+        cat_rows = (
+            db.session.query(
+                Transaction.category,
+                func.sum(Transaction.amount),
+            )
+            .group_by(Transaction.category)
+            .all()
+        )
+        by_category = [
+            {
+                "category": c if c else "Uncategorized",
+                "amount": float(a or 0.0),
+            }
+            for c, a in cat_rows
+        ]
+
+        # daily net
+        daily_rows = (
+            db.session.query(
+                Transaction.date,
+                func.sum(Transaction.amount),
+            )
+            .group_by(Transaction.date)
+            .order_by(Transaction.date)
+            .all()
+        )
+        daily_data = [
+            {
+                "date": d.strftime("%Y-%m-%d"),
+                "amount": float(a or 0.0),
+            }
+            for d, a in daily_rows
+        ]
+
+        return render_template(
+            "dashboard.html",
+            total_spending=float(total_spending),
+            total_income=float(total_income),
+            net=float(net),
+            by_category=by_category,
+            daily_data=daily_data,
+        )
+
+    @app.route("/transactions")
+    def transactions():
+        txs = (
+            Transaction.query.order_by(
+                Transaction.date.desc(), Transaction.id.desc()
+            ).all()
+        )
+        return render_template("transactions.html", transactions=txs)
+
+    # -------- CSV Import (for spending_45days.csv etc.) --------
+
+    @app.route("/import/csv", methods=["GET", "POST"])
+    def import_csv():
+        if request.method == "POST":
+            file = request.files.get("file")
+            if not file or file.filename == "":
+                flash("No file selected.", "danger")
+                return redirect(url_for("import_csv"))
+
+            filename = file.filename.lower()
+            if not filename.endswith(".csv"):
+                flash("Only CSV files are allowed.", "danger")
+                return redirect(url_for("import_csv"))
+
+            # Save temp CSV
+            os.makedirs(Config.UPLOAD_FOLDER, exist_ok=True)
+            tmp_path = os.path.join(Config.UPLOAD_FOLDER, "upload.csv")
+            file.save(tmp_path)
+
+            # Read CSV
+            df = pd.read_csv(tmp_path)
+
+            created = 0
+            skipped_bad_date = 0
+
+            for _, row in df.iterrows():
+                # --- Parse and validate date ---
+                raw_date = str(row.get("Date") or "").strip()
+                tx_date = None
+                if raw_date:
+                    try:
+                        tx_date = parse_date(raw_date)
+                    except Exception:
+                        tx_date = None
+
+                # If still no valid date (e.g. "2025-11-XX"), skip this row
+                if not tx_date:
+                    skipped_bad_date += 1
+                    continue
+
+                # --- Amount / direction ---
+                direction = str(row.get("Direction") or "").strip().lower()
+                amount_raw = row.get("Amount")
+
+                try:
+                    amount = float(amount_raw)
+                except (TypeError, ValueError):
+                    amount = 0.0
+
+                # Normalize sign: debits negative, credits positive
+                if direction == "debit" and amount > 0:
+                    amount = -amount
+                elif direction == "credit" and amount < 0:
+                    amount = -amount
+
+                tx = Transaction(
+                    date=tx_date,
+                    source_system=(row.get("Source") or "").strip(),
+                    account_name=(row.get("Account") or "").strip(),
+                    direction=direction,
+                    amount=amount,
+                    merchant=(row.get("Merchant") or "").strip(),
+                    description=(row.get("Description") or "").strip(),
+                    category=(row.get("Category") or "").strip(),
+                    notes=(row.get("Notes") or "").strip(),
+                )
+                db.session.add(tx)
+                created += 1
+
+            try:
+                db.session.commit()
+            except Exception as e:
+                db.session.rollback()
+                flash(f"Error importing CSV: {e}", "danger")
+                return redirect(url_for("import_csv"))
+
+            msg = f"Imported {created} rows from CSV."
+            if skipped_bad_date:
+                msg += (
+                    f" Skipped {skipped_bad_date} rows with invalid dates "
+                    f"(e.g. '2025-11-XX')."
+                )
+            flash(msg, "success")
+            return redirect(url_for("transactions"))
+
+        # GET
+        return render_template("import_csv.html")
+
+    # -------- OCR Import (screenshots + statements) --------
+
+    @app.route("/import/ocr", methods=["GET", "POST"])
+    def import_ocr():
+        """
+        Option C: You drop screenshots & PDF statements in, OCR -> transactions.
+        Template should let you upload:
+          - screenshot_files (images)
+          - statement_files (pdfs)
+        """
+        if request.method == "POST":
+            screenshot_files = request.files.getlist("screenshot_files")
+            statement_files = request.files.getlist("statement_files")
+
+            os.makedirs(Config.SCREENSHOT_FOLDER, exist_ok=True)
+            os.makedirs(Config.STATEMENT_FOLDER, exist_ok=True)
+
+            screenshot_paths = []
+            for f in screenshot_files:
+                if not f or f.filename == "":
+                    continue
+                path = os.path.join(Config.SCREENSHOT_FOLDER, f.filename)
+                f.save(path)
+                screenshot_paths.append(path)
+
+            statement_paths = []
+            for f in statement_files:
+                if not f or f.filename == "":
+                    continue
+                path = os.path.join(Config.STATEMENT_FOLDER, f.filename)
+                f.save(path)
+                statement_paths.append(path)
+
+            imported_count = 0
+
+            # Process screenshots
+            if screenshot_paths:
+                tx_list = process_screenshot_files(screenshot_paths)
+                for tx in tx_list:
+                    db.session.add(
+                        Transaction(
+                            date=tx.date,
+                            source_system=tx.source_system,
+                            account_name=tx.account_name,
+                            direction=tx.direction,
+                            amount=tx.amount,
+                            merchant=tx.merchant,
+                            description=tx.description,
+                            category=tx.category,
+                            notes=tx.notes,
+                        )
+                    )
+                    imported_count += 1
+
+            # Process statements
+            if statement_paths:
+                tx_list = process_statement_files(statement_paths)
+                for tx in tx_list:
+                    db.session.add(
+                        Transaction(
+                            date=tx.date,
+                            source_system=tx.source_system,
+                            account_name=tx.account_name,
+                            direction=tx.direction,
+                            amount=tx.amount,
+                            merchant=tx.merchant,
+                            description=tx.description,
+                            category=tx.category,
+                            notes=tx.notes,
+                        )
+                    )
+                    imported_count += 1
+
+            try:
+                db.session.commit()
+            except Exception as e:
+                db.session.rollback()
+                flash(f"OCR import failed: {e}", "danger")
+                return redirect(url_for("import_ocr"))
+
+            flash(
+                f"OCR imported {imported_count} transactions "
+                "(screenshots + statements).",
+                "success",
+            )
+            return redirect(url_for("transactions"))
+
+        # GET
+        return render_template("import_ocr.html")
+
+    # -------- Manual add --------
+
+    @app.route("/add/manual", methods=["GET", "POST"])
+    def add_manual():
+        form = ManualTransactionForm()
+        if form.validate_on_submit():
+            amount = form.amount.data or 0.0
+            direction = form.direction.data
+
+            # Normalize sign
+            if direction == "debit" and amount > 0:
+                amount = -amount
+            elif direction == "credit" and amount < 0:
+                amount = -amount
+
+            tx = Transaction(
+                date=form.date.data,
+                source_system=form.source_system.data.strip(),
+                account_name=form.account_name.data.strip(),
+                direction=direction,
+                amount=amount,
+                merchant=form.merchant.data.strip(),
+                description=form.description.data.strip(),
+                category=form.category.data.strip(),
+                notes=form.notes.data.strip(),
+            )
+            db.session.add(tx)
+            db.session.commit()
+            flash("Transaction added.", "success")
+            return redirect(url_for("transactions"))
+
+        return render_template("add_manual.html", form=form)
+
+    return app
+
+
+app = create_app()
+
+if __name__ == "__main__":
+    app.run(debug=True)

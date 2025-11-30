@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+  <h2>Import CSV</h2>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, msg in messages %}
+      <div class="alert alert-{{ category }}">{{ msg }}</div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+<form action="{{ url_for('import_csv') }}" method="post" enctype="multipart/form-data">
+  <div class="form-group">
+    <label for="file">CSV File</label>
+    <input
+      type="file"
+      id="file"
+      name="file"
+      class="form-control-file"
+      accept=".csv"
+      required
+    >
+  </div>
+
+  <p class="help-text">
+    Expected columns (like your spending_45days.csv):<br>
+    <code>Date, Source, Account, Direction, Amount, Merchant, Description, Category, Notes</code>
+  </p>
+
+  <button type="submit" class="btn btn-primary btn-block">
+    Import
+  </button>
+</form>
+{% endblock %}

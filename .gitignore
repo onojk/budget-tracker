@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environment
+env/
+venv/
+budget-env/
+
+# Uploads (contains sensitive data)
+uploads/
+*.csv
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.txt
+
+# Database (contains actual transactions)
+*.db
+
+# Secrets
+config.py
+*.env
+
+# IDE files
+.vscode/
+.idea/

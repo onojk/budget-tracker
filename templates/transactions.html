@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="mb-3">Transactions</h1>
+
+<div class="table-responsive">
+  <table class="table table-sm table-striped align-middle">
+    <thead class="table-dark">
+      <tr>
+        <th>Date</th>
+        <th>Amount</th>
+        <th>Merchant</th>
+        <th>Category</th>
+        <th>Source</th>
+        <th>Account</th>
+        <th>Method</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for tx in transactions %}
+      <tr>
+        <td>{{ tx.date.isoformat() }}</td>
+        <td class="{% if tx.amount < 0 %}text-danger{% else %}text-success{% endif %}">
+          {{ "%.2f"|format(tx.amount) }}
+        </td>
+        <td>{{ tx.merchant }}</td>
+        <td><span class="badge bg-secondary">{{ tx.category or 'Uncategorized' }}</span></td>
+        <td>{{ tx.source_system }}</td>
+        <td>{{ tx.account_name }}</td>
+        <td>{{ tx.import_method }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
