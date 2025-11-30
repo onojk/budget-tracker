@@ -1,5 +1,7 @@
 import os
 from datetime import datetime, date
+MIN_ALLOWED_DATE = date(2024, 1, 1)
+
 
 from flask import (
     Flask,
@@ -9,6 +11,7 @@ from flask import (
     url_for,
     flash,
 )
+from werkzeug.utils import secure_filename
 from flask_wtf import FlaskForm
 from wtforms import (
     StringField,
@@ -34,7 +37,7 @@ import ocr_pipeline
 
 
 class ManualTransactionForm(FlaskForm):
-    date = DateField("Date", validators=[DataRequired()], default=date.today)
+    date = DateField("Date", validators=[DataRequired()], default=date.today, render_kw={"min": "2024-01-01"})
     amount = FloatField("Amount", validators=[DataRequired()])
     merchant = StringField("Merchant")
     description = StringField("Description")
@@ -79,8 +82,8 @@ def normalize_string(value) -> str:
 
 def parse_date_safe(raw):
     """
-    Parse YYYY-MM-DD dates; return (date_obj, reason) where date_obj can be None.
-    Used so we can skip things like '2025-11-XX'.
+    Parse YYYY-MM-DD dates; reject anything before 2024-01-01.
+    Returns (date_obj, reason) where date_obj may be None.
     """
     s = normalize_string(raw)
     if not s:
@@ -88,7 +91,10 @@ def parse_date_safe(raw):
     if "XX" in s:
         return None, "contains XX"
     try:
-        return datetime.strptime(s, "%Y-%m-%d").date(), None
+        d = datetime.strptime(s, "%Y-%m-%d").date()
+        if d < MIN_ALLOWED_DATE:
+            return None, "before-min-date"
+        return d, None
     except ValueError as e:
         return None, str(e)
 
@@ -257,22 +263,51 @@ def import_csv():
     return render_template("import_csv.html")
 
 
+
 @app.route("/import/ocr", methods=["GET", "POST"])
 def import_ocr():
     """
     Use OCR outputs if ocr_pipeline exposes helpers.
-    This will NOT crash if those functions are missing.
-    """
-    if request.method == "POST":
-        screenshot_folder = app.config.get("SCREENSHOT_FOLDER", "uploads/screenshots")
-        statement_folder = app.config.get("STATEMENT_FOLDER", "uploads/statements")
 
+    Now supports:
+    - Uploading OCR output files (.txt / .csv) via browser
+    - Scanning any existing files under uploads/screenshots and uploads/statements
+    """
+    screenshot_folder = app.config.get("SCREENSHOT_FOLDER", "uploads/screenshots")
+    statement_folder = app.config.get("STATEMENT_FOLDER", "uploads/statements")
+    os.makedirs(screenshot_folder, exist_ok=True)
+    os.makedirs(statement_folder, exist_ok=True)
+
+    if request.method == "POST":
+        # 1) Save newly uploaded files into the right folders
+        uploaded_screens = request.files.getlist("screenshot_files")
+        uploaded_statements = request.files.getlist("statement_files")
+
+        for f in uploaded_screens:
+            if not f or f.filename == "":
+                continue
+            fname = secure_filename(f.filename)
+            if not fname:
+                continue
+            dest = os.path.join(screenshot_folder, fname)
+            f.save(dest)
+
+        for f in uploaded_statements:
+            if not f or f.filename == "":
+                continue
+            fname = secure_filename(f.filename)
+            if not fname:
+                continue
+            dest = os.path.join(statement_folder, fname)
+            f.save(dest)
+
+        # 2) Collect all OCR files on disk
         screenshot_paths = []
         if os.path.isdir(screenshot_folder):
             screenshot_paths = [
                 os.path.join(screenshot_folder, f)
                 for f in sorted(os.listdir(screenshot_folder))
-                if f.lower().endswith(".txt")
+                if f.lower().endswith((".txt", ".csv"))
             ]
 
         statement_paths = []
@@ -280,7 +315,7 @@ def import_ocr():
             statement_paths = [
                 os.path.join(statement_folder, f)
                 for f in sorted(os.listdir(statement_folder))
-                if f.lower().endswith(".txt")
+                if f.lower().endswith((".txt", ".csv"))
             ]
 
         rows = []
@@ -288,9 +323,7 @@ def import_ocr():
         # Screenshots
         if screenshot_paths:
             if hasattr(ocr_pipeline, "process_screenshot_files"):
-                rows.extend(
-                    ocr_pipeline.process_screenshot_files(screenshot_paths)
-                )
+                rows.extend(ocr_pipeline.process_screenshot_files(screenshot_paths))
             else:
                 flash(
                     "OCR: process_screenshot_files() not found in ocr_pipeline.py; "
@@ -301,9 +334,7 @@ def import_ocr():
         # Statements
         if statement_paths:
             if hasattr(ocr_pipeline, "process_statement_files"):
-                rows.extend(
-                    ocr_pipeline.process_statement_files(statement_paths)
-                )
+                rows.extend(ocr_pipeline.process_statement_files(statement_paths))
             else:
                 flash(
                     "OCR: process_statement_files() not found in ocr_pipeline.py; "
@@ -350,6 +381,10 @@ def import_ocr():
 def add_manual():
     form = ManualTransactionForm()
     if form.validate_on_submit():
+        if form.date.data < MIN_ALLOWED_DATE:
+            flash("Date cannot be earlier than January 1, 2024.", "danger")
+            return redirect(url_for("add_manual"))
+
         direction = form.direction.data or "debit"
         amount = coerce_amount(form.amount.data, direction)
 

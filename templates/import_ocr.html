@@ -1,20 +1,38 @@
 {% extends "base.html" %}
+
 {% block content %}
 <div class="container mt-4">
-    <h2>Import via OCR</h2>
+  <h2>Import OCR Data</h2>
+  <p class="text-muted">
+    Upload OCR output files (.txt or .csv) or just run the import to scan any files
+    already saved under <code>uploads/screenshots/</code> and <code>uploads/statements/</code>.
+  </p>
 
-    <form method="post" enctype="multipart/form-data">
-        <div class="mb-3">
-            <label for="files" class="form-label">Upload Screenshots or PDF Statements</label>
-            <input class="form-control" type="file" name="files" id="files" multiple>
-        </div>
+  <form method="post" enctype="multipart/form-data" class="mb-4">
+    <div class="mb-3">
+      <label class="form-label">Screenshot OCR files (.txt / .csv)</label>
+      <input class="form-control" type="file" name="screenshot_files" multiple>
+      <div class="form-text">
+        Use this for OCR text exported from transaction screenshots.
+      </div>
+    </div>
 
-        <div class="alert alert-info">
-            Supported: PNG, JPG, JPEG, PDF<br>
-            You may upload multiple files at once.
-        </div>
+    <div class="mb-3">
+      <label class="form-label">Statement OCR files (.txt / .csv)</label>
+      <input class="form-control" type="file" name="statement_files" multiple>
+      <div class="form-text">
+        Use this for OCR text from PDF/card/bank statements.
+      </div>
+    </div>
 
-        <button type="submit" class="btn btn-primary">Process via OCR</button>
-    </form>
+    <button type="submit" class="btn btn-primary">
+      Import OCR Data
+    </button>
+  </form>
+
+  <p class="text-muted small">
+    The importer will automatically skip any rows with invalid dates or dates
+    before <strong>2024-01-01</strong>.
+  </p>
 </div>
 {% endblock %}
