@@ -109,6 +109,12 @@ def parse_date_safe(raw):
     except ValueError as e:
         return None, str(e)
 
+def parse_date_safer(raw):
+    """Backward-compatible alias – just call parse_date_safe()."""
+    return parse_date_safe(raw)
+
+
+
 
 def coerce_amount(raw_amount, direction: str) -> float:
     """
@@ -437,86 +443,134 @@ def import_csv():
     return render_template("import_csv.html")
 
 
+def scan_inbox_core():
+    """
+    Scan imports_inbox/ for .txt and .pdf and move/convert them into
+    uploads/screenshots and uploads/statements.
+
+    Returns:
+        (moved_txt, converted_pdfs)
+    """
+    base = app.root_path
+    inbox = os.path.join(base, "imports_inbox")
+    screenshots = os.path.join(base, "uploads", "screenshots")
+    statements = os.path.join(base, "uploads", "statements")
+
+    os.makedirs(inbox, exist_ok=True)
+    os.makedirs(screenshots, exist_ok=True)
+    os.makedirs(statements, exist_ok=True)
+
+    moved_txt = 0
+    converted_pdfs = 0
+
+    for p in Path(inbox).iterdir():
+        if not p.is_file():
+            continue
+
+        ext = p.suffix.lower()
+
+        # Treat loose .txt as pre-OCRed text (usually statements)
+        if ext == ".txt":
+            p.replace(Path(statements) / p.name)
+            moved_txt += 1
+
+        elif ext == ".pdf":
+            # Convert Chase (and other) PDFs into text statements
+            out_txt = Path(statements) / f"{p.stem}_ocr.txt"
+            try:
+                import subprocess
+                subprocess.run(
+                    ["pdftotext", "-layout", str(p), str(out_txt)],
+                    check=True,
+                )
+                converted_pdfs += 1
+            except Exception as e:
+                print(f"[SCAN] Failed to convert {p}: {e}")
+            # Keep the original PDF in the inbox for now
+            continue
+
+    return moved_txt, converted_pdfs
+
+
+
 @app.route("/import/ocr", methods=["GET", "POST"])
 def import_ocr():
-    """Import transactions from OCR text files in uploads/screenshots and uploads/statements."""
-    if request.method == "POST":
-        base = app.root_path
-        screenshot_dir = os.path.join(base, "uploads", "screenshots")
-        statement_dir = os.path.join(base, "uploads", "statements")
-        os.makedirs(screenshot_dir, exist_ok=True)
-        os.makedirs(statement_dir, exist_ok=True)
+    """
+    Import via OCR:
 
-        screenshot_files = sorted(str(p) for p in Path(screenshot_dir).glob("*.txt"))
-        statement_files = sorted(str(p) for p in Path(statement_dir).glob("*.txt"))
+    - User uploads PDF / PNG / JPG / JPEG files from anywhere
+    - We save them to imports_inbox/
+    - We run checksum-based dedupe + OCR + statement parsing
+    - We flash a detailed status message and send user to /transactions
+    """
+    from pathlib import Path
+    from flask import current_app
 
-        rows = []
-        if screenshot_files:
-            rows.extend(process_screenshot_files(screenshot_files))
-        if statement_files:
-            rows.extend(process_statement_files(statement_files))
+    if request.method == "GET":
+        return render_template("import_ocr.html")
 
-        imported = 0
-        for r in rows:
-            date_obj, reason = parse_date_safe(r.get("Date"))
-            if date_obj is None:
-                continue
+    uploaded_files = request.files.getlist("screenshot_files")
+    if not uploaded_files:
+        flash("Please choose at least one PDF or image file.", "danger")
+        return redirect(url_for("import_ocr"))
 
-            direction = (r.get("Direction") or "debit").lower()
-            amount = coerce_amount(r.get("Amount"), direction)
+    ALLOWED_EXTS = {".pdf", ".png", ".jpg", ".jpeg"}
 
-            merchant = normalize_string(r.get("Merchant"))
-            description = normalize_string(r.get("Description"))
-            account_name = normalize_string(r.get("Account"))
-            source_system = normalize_string(r.get("Source"))
-            method = normalize_string(r.get("Method"))
-            raw_category = normalize_string(r.get("Category"))
+    base = Path(current_app.root_path)
+    inbox_dir = base / "imports_inbox"
+    statements_dir = base / "uploads" / "statements"
+    inbox_dir.mkdir(parents=True, exist_ok=True)
+    statements_dir.mkdir(parents=True, exist_ok=True)
 
-            # Auto-category via rule engine
-            category = raw_category or "Uncategorized"
-            auto_cat = guess_category(
-                db,
-                merchant=merchant,
-                account_name=account_name,
-                method=method,
-            )
-            if auto_cat:
-                category = auto_cat
+    saved_to_inbox = 0
+    invalid = 0
 
-            # Skip duplicates
-            if is_duplicate_transaction(
-                db.session,
-                date_obj,
-                amount,
-                merchant,
-                account_name,
-                description,
-                source_system,
-            ):
-                continue
+    for f in uploaded_files:
+        if not f.filename:
+            continue
+        ext = Path(f.filename).suffix.lower()
+        if ext not in ALLOWED_EXTS:
+            invalid += 1
+            continue
 
-            tx = Transaction(
-                date=date_obj,
-                source_system=source_system,
-                account_name=account_name,
-                direction=direction,
-                amount=amount,
-                merchant=merchant,
-                description=description,
-                # method is only stored on CategoryRule, not Transaction
-                category=category,
-                notes=normalize_string(r.get("Notes")),
-            )
-            db.session.add(tx)
-            imported += 1
+        safe_name = secure_filename(f.filename)
+        dest = inbox_dir / safe_name
+        # Avoid overwriting by bumping suffix
+        i = 1
+        while dest.exists():
+            dest = inbox_dir / f"{dest.stem}_{i}{dest.suffix}"
+            i += 1
+        f.save(dest)
+        saved_to_inbox += 1
 
-        db.session.commit()
-        flash(f"OCR import complete. Imported {imported} transactions.", "success")
-        return redirect(url_for("transactions"))
+    if invalid and not saved_to_inbox:
+        flash("All files had unsupported extensions; only PDF, PNG, JPG, JPEG are allowed.", "danger")
+        return redirect(url_for("import_ocr"))
 
-    # GET
-    return render_template("import_ocr.html")
+    # Now run checksum-based OCR → statements + parse
+    from ocr_pipeline import process_uploaded_statement_files
 
+    stats = process_uploaded_statement_files(
+        uploads_dir=inbox_dir,
+        statements_dir=statements_dir,
+        db_session=db.session,
+        Transaction=Transaction,
+    )
+
+    saved_files = stats.get("saved_files", 0)
+    skipped_files = stats.get("skipped_duplicates", 0)
+    added_txs = stats.get("added_transactions", 0)
+
+    msg_parts = [
+        f"saved {saved_files} new file(s)",
+        f"skipped {skipped_files} exact duplicates (based on checksum)",
+        f"added {added_txs} new transactions",
+    ]
+    if invalid:
+        msg_parts.append(f"ignored {invalid} unsupported file(s)")
+
+    flash("OCR import finished: " + ", ".join(msg_parts) + ".", "success")
+    return redirect(url_for("transactions"))
 
 @app.route("/import/scan", methods=["POST"])
 def import_scan():
@@ -590,6 +644,55 @@ def add_manual():
         return redirect(url_for("transactions"))
 
     return render_template("add_manual.html", form=form)
+
+
+
+@app.route("/reports")
+def reports():
+    # Get all transactions oldest → newest
+    txs = (
+        Transaction.query
+        .order_by(Transaction.date.asc(), Transaction.id.asc())
+        .all()
+    )
+
+    # Monthly summary
+    monthly_map = OrderedDict()
+    for tx in txs:
+        if not tx.date:
+            continue
+
+        key = tx.date.strftime("%Y-%m")
+        bucket = monthly_map.setdefault(
+            key,
+            {
+                "year": tx.date.year,
+                "month": tx.date.month,
+                "label": tx.date.strftime("%b %Y"),
+                "income": 0.0,
+                "spending": 0.0,
+                "net": 0.0,
+            },
+        )
+
+        amt = float(tx.amount or 0)
+        if amt >= 0:
+            bucket["income"] += amt
+        else:
+            bucket["spending"] += amt
+        bucket["net"] += amt
+
+    monthly = list(monthly_map.values())
+
+    monthly_overview_message = (
+        "" if monthly else "No monthly data yet. Import transactions to see this overview."
+    )
+
+    return render_template(
+        "reports.html",
+        monthly=monthly,
+        monthly_overview_message=monthly_overview_message,
+    )
 
 
 # -------------------------------------------------------------------

@@ -22,13 +22,19 @@
 
     <div class="collapse navbar-collapse" id="navbarsExample">
       <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-        <li class="nav-item"><a class="nav-link {% if request.endpoint=='dashboard' %}active{% endif %}" href="{{ url_for('dashboard') }}">Dashboard</a></li>
-        <li class="nav-item"><a class="nav-link {% if request.endpoint=='transactions' %}active{% endif %}" href="{{ url_for('transactions') }}">Transactions</a></li>
-        <li class="nav-item"><a class="nav-link {% if request.endpoint=='import_csv' %}active{% endif %}" href="{{ url_for('import_csv') }}">Import CSV</a></li>
-        <li class="nav-item"><a class="nav-link {% if request.endpoint=='import_ocr' %}active{% endif %}" href="{{ url_for('import_ocr') }}">Import OCR</a>
-        <a href="/reports">Reports</a>
-</li>
-        <li class="nav-item"><a class="nav-link {% if request.endpoint=='add_manual' %}active{% endif %}" href="{{ url_for('add_manual') }}">Add Manual</a></li>
+  <div class="nav-links">
+    <a href="{{ url_for('dashboard') }}"
+       class="{% if request.endpoint == 'dashboard' %}active{% endif %}">Dashboard</a>
+    <a href="{{ url_for('transactions') }}"
+       class="{% if request.endpoint == 'transactions' %}active{% endif %}">Transactions</a>
+    
+    <a href="{{ url_for('import_ocr') }}"
+       class="{% if request.endpoint == 'import_ocr' %}active{% endif %}">Import OCR</a>
+    <a href="{{ url_for('add_manual') }}"
+       class="{% if request.endpoint == 'add_manual' %}active{% endif %}">Add Manual</a>
+    <a href="{{ url_for('reports') }}"
+       class="{% if request.endpoint == 'reports' %}active{% endif %}">Reports</a>
+  </div>
       </ul>
     </div>
   </div>
