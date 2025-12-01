@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block title %}Import OCR Report{% endblock %}
+
+{% block content %}
+<h1>Import OCR Report</h1>
+
+<p>
+  This report compares the <strong>candidate transaction lines</strong> in each
+  <code>*_ocr.txt</code> statement file with the <strong>rows in the database</strong>
+  where <code>notes == "from &lt;filename&gt;"</code>.
+</p>
+
+<div class="import-report-summary">
+  <div class="summary-item">
+    <span class="summary-label">Total candidate OCR lines</span>
+    <span class="summary-value">{{ report.totals.candidate_lines }}</span>
+  </div>
+  <div class="summary-item">
+    <span class="summary-label">Total DB rows from statement files</span>
+    <span class="summary-value">{{ report.totals.db_rows }}</span>
+  </div>
+  <div class="summary-item">
+    <span class="summary-label">Difference (candidates - DB rows)</span>
+    <span class="summary-value">
+      {{ report.totals.candidate_lines - report.totals.db_rows }}
+    </span>
+  </div>
+</div>
+
+<table class="import-report-table">
+  <thead>
+    <tr>
+      <th>Statement file</th>
+      <th class="num">Candidate OCR lines</th>
+      <th class="num">DB rows (notes = "from filename")</th>
+      <th class="num">Diff</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in report.files %}
+    <tr>
+      <td>{{ row.filename }}</td>
+      <td class="num">{{ row.candidate_lines }}</td>
+      <td class="num">{{ row.db_rows }}</td>
+      <td class="num">{{ row.candidate_lines - row.db_rows }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
