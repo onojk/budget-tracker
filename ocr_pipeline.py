@@ -1,3 +1,4 @@
+from datetime import date as Date
 import re
 
 def get_statement_year(header_line: str, default_year: int | None = None) -> int:
@@ -108,7 +109,11 @@ def _normalize_row(line: str, default_source: str, path: str):
     - Finds date-like token
     - Finds last amount-like token
     - Everything between = description/merchant
-    - Derives Direction, Source, Account, Category
+    - Derives signed Amount + Direction + Source/Account/Category.
+
+    Convention:
+      * spending  -> Amount < 0, Direction = "debit"
+      * income    -> Amount > 0, Direction = "credit"
     """
     s = line.strip()
     if not s:
@@ -124,7 +129,7 @@ def _normalize_row(line: str, default_source: str, path: str):
         r"|^\d{1,2}/\d{1,2}/\d{2,4}$"   # 11/29/2025 or 11/29/25
     )
 
-    # Amount token pattern
+    # Amount token pattern (optional +/- in front, $ allowed)
     amount_re = re.compile(r"^[-+]?\$?\d[\d,]*\.\d{2}$")
 
     # --- find first date token ---
@@ -147,6 +152,7 @@ def _normalize_row(line: str, default_source: str, path: str):
 
     raw_date = tokens[date_idx]
     try:
+        from datetime import datetime  # uses existing import, but safe here too
         if "-" in raw_date:
             dt = datetime.strptime(raw_date, "%Y-%m-%d")
         else:
@@ -169,15 +175,53 @@ def _normalize_row(line: str, default_source: str, path: str):
     except Exception:
         return None
 
-    direction = "debit" if amount < 0 else "credit"
-    abs_amount = abs(amount)
+    upper_desc = description.upper()
+
+    # ----------------------------------------------------------
+    # Sign / Direction logic
+    # ----------------------------------------------------------
+    # Most rows on a checking statement are spending (debits).
+    # Default = debit, unless description screams "income / refund".
+    income_keywords = [
+        # payroll / direct deposit
+        "DIRECT DEP", "DIRECT DEPOSIT", "DIR DEP",
+        "PAYROLL", "PAYROLL PPD", "DEP PPD", "PPD ID",
+        "ACH CREDIT", "CREDIT", "DEPOSIT",
+        # transfers IN
+        "REAL TIME TRANSFER RCD FROM",
+        "RCD FROM",
+        "TRANSFER FROM",
+        "XFER FROM",
+        "VENMO PAYMENT FROM",
+        "VENMO CASHOUT",
+        "PAYPAL TRANSFER FROM",
+        "ZELLE FROM",
+        # adjustments / interest / refunds
+        "REVERSAL", "REFUND", "ADJUSTMENT",
+        "INTEREST PAID", "INTEREST PAYMENT", "INT EARNED",
+    ]
+
+    is_income = any(k in upper_desc for k in income_keywords)
+
+    if amount < 0:
+        # OCR already gave us a signed amount; treat negative as spending.
+        direction = "debit"
+    else:
+        if is_income:
+            # Positive inflow: keep it positive, mark as credit/income
+            direction = "credit"
+        else:
+            # Default: this is spending → flip sign to negative
+            amount = -amount
+            direction = "debit"
 
     source_system, account_name = _detect_source_and_account(line, path, default_source)
     category = _guess_category(description)
 
+    import os
     return {
         "Date": date_str,
-        "Amount": abs_amount,
+        "Amount": amount,                # signed (net effect)
         "Direction": direction,
         "Source": source_system,
         "Account": account_name,
@@ -564,132 +608,305 @@ def process_uploaded_statement_files(
     # Now call existing logic to parse all statement *_ocr.txt files.
     # Collect all *_ocr.txt files and feed them to process_statement_files.
     from datetime import date as _date_cls
+    import re
 
     txt_paths = sorted(statements_dir.glob("*_ocr.txt"))
     added_count = 0
 
+    # 1) Run the legacy parser first (handles newer 2025-style files).
     if txt_paths:
         try:
-            parsed = process_statement_files(txt_paths)
-        except TypeError:
-            # Legacy signature that likely does its own DB work.
             process_statement_files(txt_paths)
-        else:
-            # If the parser returns a list/tuple of dicts, optionally insert here.
-            if isinstance(parsed, (list, tuple)):
-                if db_session is not None and Transaction is not None:
-                    for row in parsed:
-                        if not isinstance(row, dict):
-                            continue
+        except TypeError:
+            # Older signature that might do its own discovery.
+            process_statement_files()
 
-                        d = row.get("Date")
-                        tx_date = None
-                        if d is not None:
-                            try:
-                                if isinstance(d, str):
-                                    tx_date = _date_cls.fromisoformat(d)
-                                else:
-                                    tx_date = d
-                            except Exception:
-                                tx_date = None
+    # 2) Extra parsing pass for Chase "TRANSACTION DETAIL" tables (e.g. 2023–2024).
+    # These look like:
+    #    12/15          Card Purchase         12/13 Crownview Medical Group Coronado CA Card      -80.00        206.45
+    #
+    # We only insert rows that do NOT already exist (date+amount+merchant+notes match).
 
-                        amount = row.get("Amount")
-                        if tx_date is None or amount is None:
-                            continue
+    MONTHS = {
+        "JANUARY": 1, "FEBRUARY": 2, "MARCH": 3, "APRIL": 4,
+        "MAY": 5, "JUNE": 6, "JULY": 7, "AUGUST": 8,
+        "SEPTEMBER": 9, "OCTOBER": 10, "NOVEMBER": 11, "DECEMBER": 12,
+    }
 
-                        src_system = row.get("Source") or "Statement OCR"
-                        merchant = row.get("Merchant") or ""
+    def _extract_statement_years(txt: str):
+        """
+        Find a line like: 'December 15, 2023 through January 16, 2024'
+        and return (start_year, end_year). If not found, return (None, None).
+        """
+        pat = re.compile(
+            r"([A-Za-z]+)\s+\d{1,2},\s+(\d{4})\s+through\s+([A-Za-z]+)\s+\d{1,2},\s+(\d{4})"
+        )
+        for line in txt.splitlines():
+            m = pat.search(line)
+            if m:
+                _, y1, _, y2 = m.groups()
+                try:
+                    return int(y1), int(y2)
+                except ValueError:
+                    return None, None
+        return None, None
 
-                        # Avoid inserting duplicates if this parser is run multiple times.
-                        existing = (
-                            db_session.query(Transaction)
-                            .filter(
-                                Transaction.date == tx_date,
-                                Transaction.amount == amount,
-                                Transaction.merchant == merchant,
-                                Transaction.source_system == src_system,
-                            )
-                            .first()
-                        )
-                        if existing:
-                            continue
+    def _iter_transaction_lines(txt: str):
+        """
+        Yield lines inside the *start*transaction detail ... block.
+        """
+        in_block = False
+        for line in txt.splitlines():
+            if "*start*transaction detail" in line:
+                in_block = True
+                continue
+            if in_block and line.strip().startswith("*end*"):
+                break
+            if in_block:
+                yield line
 
-                        tx = Transaction(
-                            date=tx_date,
-                            amount=amount,
-                            direction=row.get("Direction"),
-                            source_system=src_system,
-                            account_name=row.get("Account") or "",
-                            merchant=merchant,
-                            description=row.get("Description") or "",
-                            category=row.get("Category") or "",
-                            notes=row.get("Notes") or "",
-                        )
-                        db_session.add(tx)
-                        added_count += 1
-                    db_session.commit()
-            elif isinstance(parsed, int):
-                added_count = parsed
+    def _parse_chase_transaction_detail(path):
+        """
+        Parse a single _ocr.txt file in the Chase table layout and return a list
+        of dicts compatible with the Transaction insertion logic.
+        """
+        try:
+            txt = path.read_text(errors="ignore")
+        except Exception:
+            return []
 
-    # Fallback generic parser for any Chase-like statements that might not be
-    # handled by process_statement_files (e.g. older 2024 PDFs).
-    if db_session is not None and Transaction is not None and txt_paths:
-        import re
-        DATE_LINE_RE = re.compile(
-            r'^\s*(\d{2}/\d{2}/\d{4})\s+(.+?)\s+(-?\d[\d,]*\.\d{2})\s*$'
+        start_year, end_year = _extract_statement_years(txt)
+        current_year = start_year or end_year
+        prev_month = None
+
+        # Example line:
+        # 12/15          Card Purchase         12/13 Something Desc ...                      -80.00        206.45
+        line_re = re.compile(
+            r"^\s*(\d{2})/(\d{2})\s+(.+?)\s+(-?\d[\d,]*\.\d{2})\s+(-?\d[\d,]*\.\d{2})\s*$"
         )
 
-        for txt in txt_paths:
-            with txt.open("r", encoding="utf-8", errors="ignore") as f:
-                for line in f:
-                    m = DATE_LINE_RE.match(line)
-                    if not m:
-                        continue
-                    date_s, body, amount_s = m.groups()
-                    try:
-                        month, day, year = map(int, date_s.split("/"))
-                        tx_date = _date_cls(year, month, day)
-                    except Exception:
-                        continue
+        rows = []
 
-                    try:
-                        amount = float(amount_s.replace(",", ""))
-                    except ValueError:
-                        continue
+        for line in _iter_transaction_lines(txt):
+            m = line_re.match(line)
+            if not m:
+                continue
 
-                    # Skip if this transaction already exists (prevents dupes).
-                    existing = (
-                        db_session.query(Transaction)
-                        .filter(
-                            Transaction.date == tx_date,
-                            Transaction.amount == amount,
-                            Transaction.merchant == body,
-                            Transaction.source_system == "Statement OCR",
-                        )
-                        .first()
-                    )
-                    if existing:
-                        continue
+            mm, dd, desc, amt_str, _bal_str = m.groups()
+            month = int(mm)
+            day = int(dd)
 
-                    tx = Transaction(
+            # Infer year across the statement period (e.g. Dec 2023 → Jan 2024).
+            if current_year is None:
+                current_year = end_year or start_year
+
+            if prev_month is None:
+                prev_month = month
+            else:
+                # If month "wraps around" (12 → 01), bump to end_year if available.
+                if month < prev_month and end_year and current_year == start_year:
+                    current_year = end_year
+                prev_month = month
+
+            year = current_year or (end_year or start_year or _date_cls.today().year)
+
+            # Parse amount, keep direction separately, store absolute value.
+            amt = float(amt_str.replace(",", ""))
+            direction = "debit" if amt < 0 else "credit"
+            amt_abs = abs(amt)
+
+            iso_date = f"{year:04d}-{month:02d}-{day:02d}"
+            desc_clean = " ".join(desc.split())
+            note = f"from {path.name}"
+
+            rows.append(
+                {
+                    "Date": iso_date,
+                    "Amount": amt_abs,
+                    "Direction": direction,
+                    "Source": "Statement OCR",
+                    "Account": "",
+                    "Merchant": desc_clean,
+                    "Description": desc_clean,
+                    "Category": "",
+                    "Notes": note,
+                }
+            )
+
+        return rows
+
+    # Insert parsed rows, skipping duplicates on (date, amount, merchant, notes).
+    if txt_paths and db_session is not None and Transaction is not None:
+        for path in txt_paths:
+            extra_rows = _parse_chase_transaction_detail(path)
+            for row in extra_rows:
+                try:
+                    tx_date = _date_cls.fromisoformat(row["Date"])
+                except Exception:
+                    tx_date = None
+
+                amount = row["Amount"]
+                merchant = row["Merchant"]
+                notes = row["Notes"]
+
+                # Duplicate check.
+                existing = (
+                    db_session.query(Transaction)
+                    .filter_by(
                         date=tx_date,
                         amount=amount,
-                        direction="credit",
-                        source_system="Statement OCR",
-                        account_name="",
-                        merchant=body,
-                        description=body,
-                        category="",
-                        notes=f"from {txt.name}",
+                        merchant=merchant,
+                        notes=notes,
                     )
-                    db_session.add(tx)
-                    added_count += 1
+                    .first()
+                )
+                if existing:
+                    continue
+
+                tx = Transaction(
+                    date=tx_date,
+                    amount=amount,
+                    direction=row["Direction"],
+                    source_system=row["Source"],
+                    account_name=row["Account"],
+                    merchant=merchant,
+                    description=row["Description"],
+                    category=row["Category"],
+                    notes=notes,
+                )
+                db_session.add(tx)
+                added_count += 1
 
         db_session.commit()
 
-    return {
+    stats = {
         "saved_files": saved_files,
         "skipped_duplicates": skipped_files,
         "added_transactions": added_count,
     }
 
+    # Global OCR coverage stats (for nicer banner + report)
+    if db_session is not None and Transaction is not None:
+        try:
+            coverage = compute_ocr_coverage(
+                Path(statements_dir), db_session, Transaction
+            )
+            stats.update(coverage)
+        except Exception:
+            # Never let coverage stats break the import
+            pass
+
+    return stats
+
+# --- OCR coverage + report helpers -----------------------------------------
+
+# Lines like:
+#   "  12/18  Card Purchase  ...   -80.00         206.45"
+_TX_LINE_RE = re.compile(
+    r"^\s*(\d{2}/\d{2})\s+"
+    r"(.*?)\s+"
+    r"(-?\d[\d,]*\.\d{2})\s+"
+    r"(-?\d[\d,]*\.\d{2})\s*$"
+)
+
+
+def _count_candidates_in_file(path: Path) -> int:
+    """
+    Count 'candidate' transaction lines in a single *_ocr.txt statement:
+    - Only inside *start*transaction detail / *end*transaction detail blocks
+    - Skips Beginning/Ending balance and 'Total ...' summary rows
+    """
+    text = path.read_text(errors="ignore")
+    total = 0
+
+    parts = text.split("*start*transaction detail")
+    for part in parts[1:]:
+        if "*end*transaction detail" not in part:
+            continue
+        body = part.split("*end*transaction detail", 1)[0]
+        for line in body.splitlines():
+            m = _TX_LINE_RE.match(line)
+            if not m:
+                continue
+            desc = m.group(2).strip()
+            if desc.startswith(("Beginning Balance", "Ending Balance", "Total ")):
+                continue
+            total += 1
+
+    return total
+
+
+def compute_ocr_coverage(statements_dir: Path, db_session, Transaction):
+    """
+    Global coverage stats:
+      - total candidate transaction lines across *_ocr.txt
+      - total rows in DB that originated from statement OCR
+    """
+    candidate_total = 0
+    for path in Path(statements_dir).glob("*_ocr.txt"):
+        candidate_total += _count_candidates_in_file(path)
+
+    q = db_session.query(Transaction)
+    stmt_rows = q.filter(
+        (Transaction.source_system == "Statement OCR")
+        | (Transaction.notes.ilike("from %"))
+    ).count()
+
+    return {
+        "candidate_lines": candidate_total,
+        "statement_rows": stmt_rows,
+    }
+
+
+def build_import_report(statements_dir: Path, db_session, Transaction):
+    """
+    Detailed per-file report for the Import Report page.
+
+    Returns:
+        {
+          "files": [
+             {
+                "filename": "..._ocr.txt",
+                "candidate_lines": 152,
+                "db_rows": 179,
+             },
+             ...
+          ],
+          "totals": {
+             "candidate_lines": ...,
+             "db_rows": ...,
+          },
+        }
+    """
+    rows = []
+    total_candidates = 0
+    total_db_rows = 0
+
+    for path in sorted(Path(statements_dir).glob("*_ocr.txt")):
+        fname = path.name
+        cand = _count_candidates_in_file(path)
+
+        db_rows = (
+            db_session.query(Transaction)
+            .filter(Transaction.notes == f"from {fname}")
+            .count()
+        )
+
+        total_candidates += cand
+        total_db_rows += db_rows
+
+        rows.append(
+            {
+                "filename": fname,
+                "candidate_lines": cand,
+                "db_rows": db_rows,
+            }
+        )
+
+    return {
+        "files": rows,
+        "totals": {
+            "candidate_lines": total_candidates,
+            "db_rows": total_db_rows,
+        },
+    }

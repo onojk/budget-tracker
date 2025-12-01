@@ -11,3 +11,88 @@ body {
   font-weight: 600;
   text-decoration: underline;
 }
+
+
+/* --- Flash badges for OCR import ------------------------------------ */
+
+.badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  margin-right: 0.5rem;
+  white-space: nowrap;
+}
+
+.badge-files {
+  background: #e0f3ff;
+  color: #02496b;
+}
+
+.badge-dupe {
+  background: #fff4e0;
+  color: #6d3f08;
+}
+
+.badge-tx-new {
+  background: #e3ffe0;
+  color: #215b1f;
+}
+
+.badge-tx-total {
+  background: #eeeeee;
+  color: #333333;
+}
+
+/* --- Import report page --------------------------------------------- */
+
+.import-report-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin: 1rem 0 1.5rem;
+}
+
+.import-report-summary .summary-item {
+  background: #f6f6f6;
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+}
+
+.import-report-summary .summary-label {
+  display: block;
+  font-size: 0.8rem;
+  color: #666;
+}
+
+.import-report-summary .summary-value {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.import-report-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 2rem;
+  font-size: 0.9rem;
+}
+
+.import-report-table th,
+.import-report-table td {
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid #ddd;
+}
+
+.import-report-table th {
+  text-align: left;
+  background: #f3f3f3;
+}
+
+.import-report-table th.num,
+.import-report-table td.num {
+  text-align: right;
+}
+
+.import-report-table tbody tr:nth-child(even) {
+  background: #fafafa;
+}

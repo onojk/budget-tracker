@@ -18,6 +18,7 @@ from flask import (
     url_for,
     flash,
 )
+from markupsafe import Markup
 from werkzeug.utils import secure_filename
 from flask_wtf import FlaskForm
 from wtforms import (
@@ -699,5 +700,52 @@ def reports():
 # Main entry
 # -------------------------------------------------------------------
 
+# -------------------------------------------------------------------
+# Import OCR Report
+# -------------------------------------------------------------------
+
+# -------------------------------------------------------------------
+# Import OCR Report
+# -------------------------------------------------------------------
+
+@app.route("/import/report")
+def import_report():
+    """
+    Show a coverage report for OCR'd statement files vs. DB rows.
+    Uses helper functions in ocr_pipeline if they are available.
+    """
+    base_dir = Path(app.root_path)
+    stmts_dir = base_dir / "uploads" / "statements"
+
+    coverage = None
+    coverage_error = None
+    if hasattr(ocr_pipeline, "compute_ocr_coverage"):
+        try:
+            coverage = ocr_pipeline.compute_ocr_coverage(stmts_dir)
+        except Exception as e:
+            coverage_error = str(e)
+    else:
+        coverage_error = "compute_ocr_coverage() helper not found in ocr_pipeline."
+
+    db_stats = None
+    db_stats_error = None
+    if hasattr(ocr_pipeline, "compute_ocr_db_stats"):
+        try:
+            db_stats = ocr_pipeline.compute_ocr_db_stats(db.session, Transaction)
+        except Exception as e:
+            db_stats_error = str(e)
+    else:
+        db_stats_error = "compute_ocr_db_stats() helper not found in ocr_pipeline."
+
+    return render_template(
+        "import_report.html",
+        coverage=coverage,
+        db_stats=db_stats,
+        coverage_error=coverage_error,
+        db_stats_error=db_stats_error,
+    )
+
+
 if __name__ == "__main__":
     app.run(debug=True)
+
