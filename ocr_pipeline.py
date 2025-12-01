@@ -21,6 +21,7 @@ def get_statement_year(header_line: str, default_year: int | None = None) -> int
 
 
 import os
+import shutil
 from pathlib import Path
 import hashlib
 from datetime import datetime
@@ -548,6 +549,48 @@ def ocr_to_text(input_path: Path, out_txt: Path) -> None:
         raise ValueError(f"Unsupported file type for OCR: {input_path}")
 
 
+def ocr_to_text_with_consistency(src_path: Path, out_txt: Path, passes: int = 3) -> None:
+    """
+    Run OCR multiple times on the same file and compare the outputs.
+
+    - If all passes produce identical text (by checksum), we keep the first pass.
+    - If there is any mismatch, we log a WARNING and still keep the first pass'
+      text as the canonical one, leaving the extra .passN files next to it for
+      debugging.
+    """
+    src_path = Path(src_path)
+    out_txt = Path(out_txt)
+
+    tmp_dir = out_txt.parent
+    checksums: list[str] = []
+    tmp_paths: list[Path] = []
+
+    for i in range(passes):
+        tmp = tmp_dir / f"{out_txt.stem}.pass{i}.tmp"
+        ocr_to_text(src_path, tmp)  # existing OCR function
+        ch = compute_checksum(tmp)
+        checksums.append(ch)
+        tmp_paths.append(tmp)
+
+    unique = set(checksums)
+    if len(unique) > 1:
+        print(
+            f"[OCR] WARNING: inconsistent OCR across {passes} passes for {src_path.name}: "
+            f"{checksums}"
+        )
+        # Keep all tmp files for inspection; use pass0 as canonical text
+        shutil.move(tmp_paths[0], out_txt)
+    else:
+        # All identical: keep one and delete the rest
+        shutil.move(tmp_paths[0], out_txt)
+        for p in tmp_paths[1:]:
+            try:
+                p.unlink()
+            except FileNotFoundError:
+                pass
+
+
+
 def process_uploaded_statement_files(
     uploads_dir: Path,
     statements_dir: Path,
@@ -599,7 +642,8 @@ def process_uploaded_statement_files(
         # New file → generate OCR text with a name that embeds date or original stem
         out_txt = statements_dir / f"{f.stem}_ocr.txt"
         try:
-            ocr_to_text(f, out_txt)
+            # Run OCR multiple times and compare outputs for consistency
+            ocr_to_text_with_consistency(f, out_txt, passes=3)
             saved_files += 1
             existing_checksums[ch] = out_txt.name
         except Exception as e:
