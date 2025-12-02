@@ -1,5 +1,7 @@
 from datetime import date as Date
 import re
+from direction_rules import parse_signed_amount
+
 
 def get_statement_year(header_line: str, default_year: int | None = None) -> int:
     """
@@ -777,6 +779,55 @@ def process_uploaded_statement_files(
                 }
             )
 
+
+        # ------------------------------------------------------------------
+        # Extra pass: catch Millennium Healt Direct Dep lines that may
+        # live outside the TRANSACTION DETAIL block in some statements.
+        # ------------------------------------------------------------------
+        payroll_re = re.compile(
+            r"(\d{2})/(\d{2})\s+Millennium Healt\s+Direct Dep\s+PPD ID:\s*\d+\s+(-?\d[\d,]*\.\d{2})\s+(-?\d[\d,]*\.\d{2})"
+        )
+
+        for m in payroll_re.finditer(txt):
+            mm, dd, amt_str, _bal_str = m.groups()
+            month = int(mm)
+            day = int(dd)
+
+            # Use the same year inference as above, falling back to statement years.
+            year = current_year or (end_year or start_year or _date_cls.today().year)
+
+            ctx = f"Millennium Healt Direct Dep {amt_str}"
+            amt_signed = parse_signed_amount(amt_str, context=ctx)
+            direction = "debit" if amt_signed < 0 else "credit"
+
+            iso_date = f"{year:04d}-{month:02d}-{day:02d}"
+            desc_clean = "Millennium Healt Direct Dep PPD ID: 9111111103"
+            note = f"from {path.name} (payroll line outside detail block)"
+
+            # Avoid inserting duplicates if this line was somehow already captured.
+            already = any(
+                r["Date"] == iso_date
+                and abs(r["Amount"] - amt_signed) < 0.005
+                and "Millennium Healt" in r["Merchant"]
+                for r in rows
+            )
+            if already:
+                continue
+
+            rows.append(
+                {
+                    "Date": iso_date,
+                    "Amount": amt_signed,
+                    "Direction": direction,
+                    "Source": "Statement OCR",
+                    "Account": "",
+                    "Merchant": desc_clean,
+                    "Description": desc_clean,
+                    "Category": "Income:Payroll",
+                    "Notes": note,
+                }
+            )
+
         return rows
 
     # Insert parsed rows, skipping duplicates on (date, amount, merchant, notes).
@@ -961,110 +1012,3 @@ def build_import_report(statements_dir: Path, db_session, Transaction):
 import re
 
 # Words that strongly suggest a DEBIT (money leaving you)
-DEBIT_HINT_WORDS = {
-    "debit",
-    "withdrawal",
-    "purchase",
-    "pos",
-    "card purchase",
-    "payment",
-    "payment to",
-    "auto payment",
-    "ach debit",
-    "transfer to",
-    "money sent",
-    "sent money",
-    "cash out",
-    "fee",
-    "charge",
-    "subscription",
-    "bill pay",
-}
-
-# Words that strongly suggest a CREDIT (money coming in)
-CREDIT_HINT_WORDS = {
-    "credit",
-    "deposit",
-    "payout",
-    "payouts",
-    "settlement",
-    "money received",
-    "received money",
-    "refund",
-    "reversal",
-    "ach credit",
-    "transfer from",
-    "payment received",
-    "payroll",
-    "direct deposit",
-}
-
-def parse_signed_amount(amount_str: str, context: str = "") -> float:
-    """
-    Parse an amount string like:
-        "12.34", "-12.34", "12.34-", "(12.34)", "$12.34 DR", "12.34 CR"
-    and return a signed float.
-    `context` should be the full line/description to help infer debit vs credit.
-    """
-    if amount_str is None:
-        raise ValueError("amount_str is None")
-
-    s = str(amount_str).strip()
-    ctx = (context or "").lower()
-
-    # ---- 1) Detect obvious minus markers on the amount itself
-    is_negative = False
-
-    # Accounting parentheses: (123.45)
-    if "(" in s and ")" in s:
-        is_negative = True
-
-    # Leading minus: -123.45
-    if s.startswith("-"):
-        is_negative = True
-
-    # Trailing minus: 123.45-
-    if s.endswith("-"):
-        is_negative = True
-
-    # Explicit DR / CR on amount itself
-    s_lower = s.lower()
-    if " dr" in s_lower or s_lower.endswith("dr"):
-        is_negative = True
-    if " cr" in s_lower or s_lower.endswith("cr"):
-        # explicit credit wins over earlier negatives on the raw string
-        is_negative = False
-
-    # ---- 2) Strip decorations to isolate the numeric part
-    cleaned = s
-    cleaned = cleaned.replace("$", "").replace(",", "")
-    cleaned = cleaned.replace("(", "").replace(")", "")
-    cleaned = cleaned.replace("+", "")
-
-    # Remove trailing minus AFTER we’ve noted it
-    if cleaned.endswith("-"):
-        cleaned = cleaned[:-1].strip()
-
-    # Extract the first number we see
-    import re as _re
-    m = _re.search(r"[-+]?\d+(\.\d+)?", cleaned)
-    if not m:
-        raise ValueError(f"Could not parse amount from {amount_str!r}")
-
-    raw_number = float(m.group(0))
-    magnitude = abs(raw_number)  # strip sign from numeric part
-
-    # ---- 3) Use surrounding text to infer debit vs credit
-    ctx_debit = any(word in ctx for word in DEBIT_HINT_WORDS) or _re.search(r"\bdr\b", ctx) is not None
-    ctx_credit = any(word in ctx for word in CREDIT_HINT_WORDS) or _re.search(r"\bcr\b", ctx) is not None
-
-    if ctx_debit and not ctx_credit:
-        is_negative = True
-    elif ctx_credit and not ctx_debit:
-        is_negative = False
-    # If both or neither: fall back to whatever we inferred earlier
-
-    signed = -magnitude if is_negative else magnitude
-    # IMPORTANT: DO NOT call abs() on this later – the sign must be preserved.
-    return round(signed, 2)
-
