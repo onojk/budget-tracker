@@ -13,7 +13,7 @@
 <body>
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-3">
   <div class="container-fluid">
-    <a class="navbar-brand" href="{{ url_for('dashboard') }}">💸 Budget</a>
+    <a class="navbar-brand" href="{{ url_for('root_index') }}">💸 Budget</a>
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse"
             data-bs-target="#navbarsExample" aria-controls="navbarsExample"
             aria-expanded="false" aria-label="Toggle navigation">
@@ -29,7 +29,7 @@
        class="{% if request.endpoint == 'transactions' %}active{% endif %}">Transactions</a>
     
     <a href="{{ url_for('import_ocr') }}"
-       class="{% if request.endpoint == 'import_ocr' %}active{% endif %}">Import OCR</a> <a href="{{ url_for('import_report') }}">Import Report</a>
+       class="{% if request.endpoint == 'import_ocr' %}active{% endif %}">Import OCR</a> <a href="{{ url_for('import_csv') }}">Import Report</a>
     <a href="{{ url_for('add_manual') }}"
        class="{% if request.endpoint == 'add_manual' %}active{% endif %}">Add Manual</a>
     <a href="{{ url_for('reports') }}"

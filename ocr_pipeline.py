@@ -1,33 +1,36 @@
-from datetime import date as Date
-import re
-from direction_rules import parse_signed_amount
+import csv
+#!/usr/bin/env python3
+"""
+ocr_pipeline.py
 
+OCR + import pipeline for statements and screenshots.
 
-def get_statement_year(header_line: str, default_year: int | None = None) -> int:
-    """
-    Extract statement year from a header line such as:
-        "December 15, 2023 through January 16, 2024"
-
-    We deliberately choose the *latest* year on the line so that
-    Dec→Jan statements are attributed to the January year.
-    """
-    import re as _re
-    from datetime import date as _date
-
-    years = [int(y) for y in _re.findall(r"\b(20\d{2})\b", header_line)]
-    if years:
-        return max(years)
-    if default_year is not None:
-        return default_year
-    return _date.today().year
-
+Responsibilities:
+- Normalize OCR'd text lines into row dicts (Date, Amount, Merchant, etc.).
+- Provide screenshot + statement text parsers.
+- Provide PDF-parsing hooks (pdfplumber) when available.
+- Bridge OCR → DB via ocr_import_helpers.import_ocr_rows.
+- Extra statement-specific parsers:
+    * Chase "TRANSACTION DETAIL" blocks
+    * PayPal Credit / PayPal Cashback Synchrony statements
+- Coverage + import report helpers for the Import Report page.
+"""
 
 import os
+import re
 import shutil
-from pathlib import Path
 import hashlib
-from datetime import datetime
+from pathlib import Path
+from datetime import datetime, date as _date_cls
 
+from decimal import Decimal, InvalidOperation
+
+from chase_amount_utils import (
+    AMOUNT_RE,
+    DATE_RE,
+    parse_amount_token,
+    extract_amount_from_txn_line,
+)
 
 # -------------------------------------------------------------------
 # Helpers: bank/source + category detection
@@ -105,6 +108,108 @@ def _guess_category(description: str) -> str:
     return ""
 
 
+# =====================================================================
+# Signed-amount parsing helpers (single source of truth for +/- amounts)
+# =====================================================================
+
+# Words that strongly suggest a DEBIT (money leaving you)
+_DEBIT_WORDS = [
+    "CARD PURCHASE",
+    "DEBIT",
+    "WITHDRAWAL",
+    "ATM",
+    "PAYMENT",
+    "PURCHASE",
+    "POS",
+    "CHECKCARD",
+    "CHECK CARD",
+    "CHECK",
+    "FEE",
+    "CHARGE",
+    "INTEREST",
+]
+
+# Words that strongly suggest a CREDIT (money coming in)
+_CREDIT_WORDS = [
+    "DIRECT DEP",
+    "DIRECT DEPOSIT",
+    "PAYROLL",
+    "DEP PPD",
+    "ACH CREDIT",
+    "CREDIT",
+    "REFUND",
+    "REVERSAL",
+    "ADJUSTMENT",
+    "INTEREST PAID",
+    "INTEREST PAYMENT",
+    "INT EARNED",
+    "CASHBACK",
+    "CASH BACK",
+]
+
+
+def parse_signed_amount(raw: str, context: str = "") -> Decimal:
+    """
+    Parse a money-looking string into a signed Decimal, using both the raw
+    sign markers (-, parentheses, trailing -) and some simple context words
+    to decide the final sign.
+
+    This is used by the more specialized parsers (Chase, PayPal Credit, etc.)
+    so that +/- handling is consistent.
+    """
+    token = raw.strip()
+    token = token.replace("\u2212", "-")  # unicode minus
+
+    negative = False
+
+    # Trailing minus, e.g. "68.02-"
+    if token.endswith("-"):
+        negative = True
+        token = token[:-1]
+
+    # Parentheses, e.g. "(68.02)"
+    if token.startswith("(") and token.endswith(")"):
+        negative = True
+        token = token[1:-1]
+
+    # Leading minus
+    if token.startswith("-"):
+        negative = True
+        token = token[1:]
+
+    token = token.replace("$", "").replace(",", "")
+
+    if not token:
+        return Decimal("0.00")
+
+    try:
+        value = Decimal(token)
+    except InvalidOperation:
+        return Decimal("0.00")
+
+    if negative:
+        value = -value
+
+    ctx = (context or "").upper()
+
+    # Context nudges: some descriptions indicate debit, some credit
+    if any(w in ctx for w in _DEBIT_WORDS):
+        # Debits should be negative
+        if value > 0:
+            value = -value
+    elif any(w in ctx for w in _CREDIT_WORDS):
+        # Credits should be positive
+        if value < 0:
+            value = -value
+
+    return value
+
+
+# -------------------------------------------------------------------
+# Core line normalizer for generic OCR text rows
+# -------------------------------------------------------------------
+
+
 def _normalize_row(line: str, default_source: str, path: str):
     """
     Core parser for a single OCR line:
@@ -155,7 +260,6 @@ def _normalize_row(line: str, default_source: str, path: str):
 
     raw_date = tokens[date_idx]
     try:
-        from datetime import datetime  # uses existing import, but safe here too
         if "-" in raw_date:
             dt = datetime.strptime(raw_date, "%Y-%m-%d")
         else:
@@ -167,64 +271,41 @@ def _normalize_row(line: str, default_source: str, path: str):
     except Exception:
         return None
 
-    description = " ".join(tokens[date_idx + 1:amount_idx]).strip()
+    description = " ".join(tokens[date_idx + 1 : amount_idx]).strip()
     if not description:
         return None
 
     amt_raw = tokens[amount_idx]
-    try:
-        amt_clean = amt_raw.replace(",", "").replace("$", "")
-        amount = float(amt_clean)
-    except Exception:
-        return None
+    amount = parse_signed_amount(amt_raw, context=description)
 
     upper_desc = description.upper()
 
     # ----------------------------------------------------------
-    # Sign / Direction logic
+    # Direction logic
     # ----------------------------------------------------------
-    # Most rows on a checking statement are spending (debits).
-    # Default = debit, unless description screams "income / refund".
-    income_keywords = [
-        # payroll / direct deposit
-        "DIRECT DEP", "DIRECT DEPOSIT", "DIR DEP",
-        "PAYROLL", "PAYROLL PPD", "DEP PPD", "PPD ID",
-        "ACH CREDIT", "CREDIT", "DEPOSIT",
-        # transfers IN
-        "REAL TIME TRANSFER RCD FROM",
-        "RCD FROM",
-        "TRANSFER FROM",
-        "XFER FROM",
-        "VENMO PAYMENT FROM",
-        "VENMO CASHOUT",
-        "PAYPAL TRANSFER FROM",
-        "ZELLE FROM",
-        # adjustments / interest / refunds
-        "REVERSAL", "REFUND", "ADJUSTMENT",
-        "INTEREST PAID", "INTEREST PAYMENT", "INT EARNED",
+    # Default assumption:
+    #   - if amount < 0 => debit (spending)
+    #   - if amount > 0 => credit (income/refund)
+    direction = "debit" if amount < 0 else "credit"
+
+    # Transfers & neutral internal moves
+    transfer_keywords = [
+        "TRANSFER TO", "XFER TO", "TO SAVINGS", "TO CHECKING",
+        "REAL TIME TRANSFER RCD TO",
+        "PAYMENT TO",
+        "PAYPAL TRANSFER TO", "VENMO TRANSFER TO",
+        "ZELLE TO",
+        "CASH APP TO",
     ]
-
-    is_income = any(k in upper_desc for k in income_keywords)
-
-    if amount < 0:
-        # OCR already gave us a signed amount; treat negative as spending.
-        direction = "debit"
-    else:
-        if is_income:
-            # Positive inflow: keep it positive, mark as credit/income
-            direction = "credit"
-        else:
-            # Default: this is spending → flip sign to negative
-            amount = -amount
-            direction = "debit"
+    if any(k in upper_desc for k in transfer_keywords):
+        direction = "transfer"
 
     source_system, account_name = _detect_source_and_account(line, path, default_source)
     category = _guess_category(description)
 
-    import os
     return {
         "Date": date_str,
-        "Amount": amount,                # signed (net effect)
+        "Amount": float(amount),        # stored as float for import_ocr_rows; DB uses Decimal
         "Direction": direction,
         "Source": source_system,
         "Account": account_name,
@@ -240,7 +321,7 @@ def _normalize_row(line: str, default_source: str, path: str):
 # -------------------------------------------------------------------
 
 
-def _parse_ocr_text_file(path, default_source):
+def _parse_ocr_text_file(path, default_source: str):
     rows = []
     try:
         raw = Path(path).read_text(errors="ignore")
@@ -257,22 +338,195 @@ def _parse_ocr_text_file(path, default_source):
 def process_screenshot_files(file_paths):
     """
     Process OCR text files generated from account screenshots.
+    Returns a list of normalized row dicts.
     """
     rows = []
-    for p in file_paths:
+    for p in file_paths or []:
         rows.extend(_parse_ocr_text_file(p, "Screenshot OCR"))
     return rows
 
 
-def process_statement_files(file_paths):
+def process_statement_files(file_paths=None):
     """
-    Process OCR text files generated from full statements.
+    Process OCR text files generated from full statements (generic parser).
+
+    NOTE: Chase/PayPal Credit have their own more-accurate parsers that run
+    in process_uploaded_statement_files; this function is just a generic pass.
     """
     rows = []
+    if not file_paths:
+        return rows
     for p in file_paths:
         rows.extend(_parse_ocr_text_file(p, "Statement OCR"))
     return rows
 
+# =====================================================================
+# Capital One (card ending 0728) statement parser (from *_ocr.txt)
+# =====================================================================
+
+def _parse_capone_0728_statement(txt_path):
+    """
+    Parse a Capital One Platinum Mastercard (ending in 0728) statement
+    from its *_ocr.txt file (generated by pdftotext -layout).
+
+    Returns a list of row dicts compatible with Transaction insertion.
+    - Payments, Credits and Adjustments  -> card payments (transfer)
+    - Transactions                       -> spending
+    """
+
+    from pathlib import Path
+    import re
+    from decimal import Decimal
+    from datetime import date as _date_cls
+
+    try:
+        text = Path(txt_path).read_text(errors="ignore")
+    except Exception:
+        return []
+
+    # Quick guard: if it doesn't look like this Cap One card, bail out.
+    if "Platinum Card | Platinum Mastercard ending in 0728" not in text:
+        return []
+
+    # --------------------------------------------------------------
+    # 1) Extract statement period: "Dec 10, 2024 - Jan 09, 2025"
+    # --------------------------------------------------------------
+    period_re = re.compile(
+        r"([A-Za-z]+)\s+(\d{1,2}),\s+(\d{4})\s*-\s*"
+        r"([A-Za-z]+)\s+(\d{1,2}),\s+(\d{4})"
+    )
+
+    MONTH = {
+        "JANUARY": 1, "JAN": 1,
+        "FEBRUARY": 2, "FEB": 2,
+        "MARCH": 3, "MAR": 3,
+        "APRIL": 4, "APR": 4,
+        "MAY": 5,
+        "JUNE": 6, "JUN": 6,
+        "JULY": 7, "JUL": 7,
+        "AUGUST": 8, "AUG": 8,
+        "SEPTEMBER": 9, "SEP": 9, "SEPT": 9,
+        "OCTOBER": 10, "OCT": 10,
+        "NOVEMBER": 11, "NOV": 11,
+        "DECEMBER": 12, "DEC": 12,
+    }
+
+    start_month_name = end_month_name = None
+    start_year = end_year = None
+
+    for line in text.splitlines():
+        m = period_re.search(line)
+        if m:
+            sm, sd, sy, em, ed, ey = m.groups()
+            start_month_name = sm.upper()
+            start_year = int(sy)
+            end_month_name = em.upper()
+            end_year = int(ey)
+            break
+
+    if start_year is None:
+        start_year = _date_cls.today().year
+    if end_year is None:
+        end_year = start_year
+
+    def _month_year_for_abbrev(mon_abbrev: str):
+        """Map 'Jan'/'Feb'/etc to (year, month) within this period."""
+        mon_key = mon_abbrev.upper()
+        mnum = MONTH.get(mon_key)
+        if mnum is None:
+            return end_year, _date_cls.today().month
+
+        if start_month_name and mon_key.startswith(start_month_name[:3]):
+            return start_year, mnum
+        if end_month_name and mon_key.startswith(end_month_name[:3]):
+            return end_year, mnum
+
+        if start_month_name:
+            smnum = MONTH.get(start_month_name, mnum)
+            if mnum < smnum and end_year > start_year:
+                return end_year, mnum
+        return start_year, mnum
+
+    # --------------------------------------------------------------
+    # 2) Walk through text and capture the two tables:
+    #    - Payments, Credits and Adjustments
+    #    - Transactions
+    # --------------------------------------------------------------
+    lines = text.splitlines()
+    rows = []
+
+    mode = None  # None / "payments" / "spend"
+
+    line_re = re.compile(
+        r"^\s*([A-Za-z]{3,9})\s+(\d{1,2})\s+"
+        r"([A-Za-z]{3,9})\s+(\d{1,2})\s+"
+        r"(.+?)\s+(-?\s*\$?\d[\d,]*\.\d{2})\s*$"
+    )
+
+    for raw in lines:
+        s = raw.strip()
+
+        if "JONATHAN KENDALL #0728: Payments, Credits and Adjustments" in s:
+            mode = "payments"
+            continue
+        if "JONATHAN KENDALL #0728: Transactions" in s:
+            mode = "spend"
+            continue
+        if not mode:
+            continue
+
+        if s.startswith("Trans Date Post Date Description Amount"):
+            continue
+        if s.startswith("Total Transactions for This Period"):
+            mode = None
+            continue
+        if s.startswith("Total Transactions") or s.startswith("Total Fees"):
+            mode = None
+            continue
+        if not s:
+            continue
+
+        m = line_re.match(raw)
+        if not m:
+            continue
+
+        mon1, day1, _mon2, _day2, desc, amt_str = m.groups()
+
+        desc_clean = " ".join(desc.split())
+
+        amt_token = amt_str.replace(" ", "")
+        amt = parse_amount_token(amt_token)
+        if amt is None:
+            continue
+
+        year, month = _month_year_for_abbrev(mon1)
+        day = int(day1)
+        iso_date = f"{year:04d}-{month:02d}-{day:02d}"
+
+        if mode == "payments":
+            amount_signed = abs(amt)
+            direction = "credit"
+            category = "Transfer:Card Payment"
+        else:
+            amount_signed = -abs(amt)
+            direction = "debit"
+            category = _guess_category(desc_clean)
+
+        rows.append(
+            {
+                "Date": iso_date,
+                "Amount": float(amount_signed),
+                "Direction": direction,
+                "Source": "Capital One",
+                "Account": "Capital One 0728",
+                "Merchant": desc_clean,
+                "Description": desc_clean,
+                "Category": category,
+                "Notes": f"from {Path(txt_path).name}",
+            }
+        )
+
+    return rows
 
 # -------------------------------------------------------------------
 # PDF STATEMENT PARSING (true table extraction with pdfplumber)
@@ -302,7 +556,7 @@ def process_statement_pdfs(file_paths):
     )
     amount_re = re.compile(r"^[-+]?\$?\d[\d,]*\.\d{2}$")
 
-    for path in file_paths:
+    for path in file_paths or []:
         try:
             with pdfplumber.open(path) as pdf:
                 for page in pdf.pages:
@@ -321,7 +575,6 @@ def process_statement_pdfs(file_paths):
                             if not date_re.match(first) or not amount_re.match(last):
                                 continue
 
-                            # Reuse the same normalization logic by faking a "line"
                             fake_line = f"{first} {' '.join(cells[1:-1])} {last}"
                             row = _normalize_row(fake_line, "Statement PDF", str(path))
                             if row:
@@ -331,47 +584,112 @@ def process_statement_pdfs(file_paths):
 
     return rows
 
+
 # ============================================================
-# OCR → DB bridge
+# OCR → DB bridge via CSV files (ocr_output/*.csv)
 # ============================================================
 
 from ocr_import_helpers import import_ocr_rows
 
+from pathlib import Path as _Path
+import pandas as _pd
 
-def collect_all_ocr_rows():
+def collect_all_ocr_rows(base_dir: Path = Path("ocr_output")):
     """
-    Collect ALL OCR rows from:
-    - Screenshot-based flows
-    - Cap One / Chase / PayPal Credit / other card PDFs
-    - Any other statement PDFs you support
+    Unified generator for imported transaction rows.
 
-    This function MUST return a list of dicts in the format
-    expected by ocr_import_helpers.import_ocr_rows().
-
-    PSEUDOCODE / TEMPLATE — replace with your real calls:
-        rows = []
-        rows.extend(collect_bank_screenshot_rows())
-        rows.extend(collect_capone_pdf_rows())
-        rows.extend(collect_chase_pdf_rows())
-        rows.extend(collect_paypal_credit_pdf_rows())
-        ...
-        return rows
+    TEMP: Only Capital One CSV rows (Chase OCR disabled here to avoid NameError).
+    We can re-add Chase once iter_chase_ocr_rows is confirmed in this module.
     """
-    rows = []
+    for row in iter_capone_csv_rows(base_dir):
+        yield row
 
-    # TODO: plug in your real functions here.
-    # Example shape:
+# === Capital One CSV support ===
 
-    # from your_capone_module import parse_capone_pdfs
-    # rows.extend(parse_capone_pdfs("/path/to/capone/pdfs"))
+def parse_capone_date(s: str):
+    """
+    Capital One CSV uses ISO dates: YYYY-MM-DD
+    """
+    s = (s or "").strip()
+    if not s:
+        return None
+    return datetime.strptime(s, "%Y-%m-%d").date()
 
-    # from your_screenshot_module import parse_new_screenshots
-    # rows.extend(parse_new_screenshots("/path/to/screenshot/folder"))
 
-    return rows
+def _parse_capone_amount(row: dict) -> Decimal:
+    """
+    Capital One CSV has separate Debit and Credit columns.
 
+    - Debit  (charges, purchases, interest) -> money out  -> NEGATIVE
+    - Credit (payments, refunds)            -> money in   -> POSITIVE
+    """
+    debit_raw = (row.get("Debit") or "").strip()
+    credit_raw = (row.get("Credit") or "").strip()
+
+    def to_dec(s: str) -> Decimal:
+        s = s.replace("$", "").replace(",", "").strip()
+        if not s:
+            return Decimal("0")
+        try:
+            return Decimal(s)
+        except InvalidOperation:
+            return Decimal("0")
+
+    debit = to_dec(debit_raw)
+    credit = to_dec(credit_raw)
+
+    # spending (debit) -> negative, payments/credits -> positive
+    return credit - debit
+
+
+def iter_capone_csv_rows(base_dir: Path):
+    """
+    Yield normalized row dicts for Capital One CSV exports in:
+
+        base_dir / "capone" / *.csv
+    """
+    capone_dir = base_dir / "capone"
+    if not capone_dir.exists():
+        return  # nothing to do
+
+    for csv_path in sorted(capone_dir.glob("*.csv")):
+        with csv_path.open("r", newline="", encoding="utf-8-sig") as f:
+            reader = csv.DictReader(f)
+            for raw in reader:
+                # 1) Date
+                date_str = (raw.get("Transaction Date") or "").strip()
+                tx_date = parse_capone_date(date_str)
+
+                # 2) Description / merchant
+                description = (raw.get("Description") or "").strip()
+
+                # 3) Card number -> last 4 -> account name
+                card_no = (raw.get("Card No.") or "").strip()
+                last4 = card_no[-4:] if len(card_no) >= 4 else card_no
+                account_name = f"Capital One {last4 or 'Unknown'}"
+
+                # 4) Amount (Debit/Credit -> signed)
+                amount = _parse_capone_amount(raw)
+
+                # 5) Category (optional, but nice to keep somewhere)
+                category = (raw.get("Category") or "").strip()
+
+                raw_desc = (
+                    f"{csv_path.name} | {date_str} | {description} | "
+                    f"{card_no} | {category}"
+                )
+
+                yield {
+                    "date": tx_date,
+                    "amount": amount,
+                    "merchant": description or "Capital One transaction",
+                    "account_name": account_name,
+                    "source_system": "Capital One CSV",
+                    "raw_desc": raw_desc,
+                }
 
 def import_all_ocr_to_db():
+    base_dir = Path("ocr_output")
     """
     High-level helper:
     - Gathers all OCR rows (bank + CC + PayPal Credit + screenshots)
@@ -379,85 +697,20 @@ def import_all_ocr_to_db():
 
     Safe to re-run many times: import_ocr_rows does a de-dup check.
     """
-    rows = collect_all_ocr_rows()
+    rows = list(collect_all_ocr_rows(base_dir))
     print(f"collect_all_ocr_rows() returned {len(rows)} rows.")
     inserted, skipped = import_ocr_rows(rows)
     print(f"OCR → DB import finished. Inserted={inserted}, skipped_existing={skipped}")
 
-# ============================================================
-# New implementation of collect_all_ocr_rows using OCR CSVs
-# ============================================================
-
-from pathlib import Path as _Path
-import pandas as _pd
-
-def collect_all_ocr_rows():
-    """
-    Collect ALL OCR rows from CSVs under ./ocr_output.
-
-    Expected:
-    - Your OCR pipelines (screenshots, Cap One, Chase card, PayPal Credit, etc.)
-      write one or more CSV files into:  <repo_root>/ocr_output/*.csv
-
-    This loader:
-      - walks that directory
-      - reads each CSV with pandas
-      - normalizes column names into the format expected by import_ocr_rows()
-    """
-    base_dir = _Path(__file__).parent / "ocr_output"
-    rows = []
-
-    if not base_dir.exists():
-        print(f"collect_all_ocr_rows: no directory {base_dir}, nothing to import.")
-        return rows
-
-    csv_paths = sorted(base_dir.glob("*.csv"))
-    if not csv_paths:
-        print(f"collect_all_ocr_rows: no CSV files in {base_dir}, nothing to import.")
-        return rows
-
-    print(f"collect_all_ocr_rows: found {len(csv_paths)} CSV files under {base_dir}")
-
-    for csv_path in csv_paths:
-        print(f"  - loading {csv_path}")
-        try:
-            df = _pd.read_csv(csv_path)
-        except Exception as e:
-            print(f"    ! ERROR reading {csv_path}: {e}")
-            continue
-
-        cols_lower = {c.lower(): c for c in df.columns}
-
-        def _get_val(row, *names, default=""):
-            for name in names:
-                key = name.lower()
-                if key in cols_lower:
-                    return row[cols_lower[key]]
-            return default
-
-        for _, r in df.iterrows():
-            row = {
-                "Date": _get_val(r, "date", "transaction_date", "posted_date", default=None),
-                "Amount": _get_val(r, "amount", "amt"),
-                "Merchant": _get_val(r, "merchant", "payee", "description"),
-                "Source": _get_val(r, "source", "source_system", "institution", default="Screenshot OCR"),
-                "Account": _get_val(r, "account", "account_name", "card_name", default=""),
-                "Direction": _get_val(r, "direction", "type", default="debit"),
-                "Description": _get_val(r, "description", "memo", "details", default=""),
-                "Category": _get_val(r, "category", default=""),
-                "Notes": _get_val(r, "notes", default=""),
-            }
-            rows.append(row)
-
-    print(f"collect_all_ocr_rows: assembled {len(rows)} rows from OCR CSVs.")
-    return rows
 
 # ============================================================
 # Screenshot OCR → CSV helper + entrypoint
 # ============================================================
+
 from pathlib import Path as _SSPath
 import datetime as _dt
 import pandas as _pd2
+
 
 def save_screenshot_csv(rows, prefix="screenshots"):
     """
@@ -487,12 +740,12 @@ def save_screenshot_csv(rows, prefix="screenshots"):
     return outpath
 
 
-def process_screenshot_files(files=None):
+def process_screenshot_files_entrypoint(files=None):
     """
-    ENTRYPOINT used by app.py and run_ocr_and_refresh.sh.
+    ENTRYPOINT used by app.py and run_ocr_and_refresh.sh (if wired).
 
     CURRENTLY:
-      - Acts as a stub (no real OCR yet).
+      - Acts as a stub (no real screenshot OCR yet).
       - This keeps imports working and makes the pipeline stable.
     
     LATER:
@@ -500,8 +753,8 @@ def process_screenshot_files(files=None):
         row dicts in the same normalized format used by collect_all_ocr_rows()
         and then calls save_screenshot_csv(rows).
     """
-    print("process_screenshot_files: no real screenshot OCR wired yet.")
-    print("process_screenshot_files: when ready, implement OCR and call save_screenshot_csv(rows).")
+    print("process_screenshot_files_entrypoint: no real screenshot OCR wired yet.")
+    print("process_screenshot_files_entrypoint: when ready, implement OCR and call save_screenshot_csv(rows).")
     rows = []  # TODO: fill with real OCR output later
     return rows
 
@@ -509,6 +762,7 @@ def process_screenshot_files(files=None):
 # ======================================================================
 # Checksum + OCR helpers
 # ======================================================================
+
 
 def compute_checksum(path: Path) -> str:
     """Return md5 checksum of a file path."""
@@ -542,8 +796,6 @@ def ocr_to_text(input_path: Path, out_txt: Path) -> None:
             ["tesseract", str(input_path), str(tmp_no_ext)],
             check=True,
         )
-        # tesseract creates tmp_no_ext.txt
-        # ensure final name matches out_txt exactly
         gen_txt = tmp_no_ext.with_suffix(".txt")
         if gen_txt != out_txt:
             gen_txt.replace(out_txt)
@@ -564,12 +816,12 @@ def ocr_to_text_with_consistency(src_path: Path, out_txt: Path, passes: int = 3)
     out_txt = Path(out_txt)
 
     tmp_dir = out_txt.parent
-    checksums: list[str] = []
-    tmp_paths: list[Path] = []
+    checksums = []
+    tmp_paths = []
 
     for i in range(passes):
         tmp = tmp_dir / f"{out_txt.stem}.pass{i}.tmp"
-        ocr_to_text(src_path, tmp)  # existing OCR function
+        ocr_to_text(src_path, tmp)
         ch = compute_checksum(tmp)
         checksums.append(ch)
         tmp_paths.append(tmp)
@@ -580,10 +832,8 @@ def ocr_to_text_with_consistency(src_path: Path, out_txt: Path, passes: int = 3)
             f"[OCR] WARNING: inconsistent OCR across {passes} passes for {src_path.name}: "
             f"{checksums}"
         )
-        # Keep all tmp files for inspection; use pass0 as canonical text
         shutil.move(tmp_paths[0], out_txt)
     else:
-        # All identical: keep one and delete the rest
         shutil.move(tmp_paths[0], out_txt)
         for p in tmp_paths[1:]:
             try:
@@ -591,6 +841,369 @@ def ocr_to_text_with_consistency(src_path: Path, out_txt: Path, passes: int = 3)
             except FileNotFoundError:
                 pass
 
+
+# ======================================================================
+# Uploaded statements → text OCR → DB
+# ======================================================================
+
+
+def _extract_statement_years(txt: str):
+    """
+    Find a line like: 'December 15, 2023 through January 16, 2024'
+    and return (start_year, end_year). If not found, return (None, None).
+    """
+    pat = re.compile(
+        r"([A-Za-z]+)\s+\d{1,2},\s+(\d{4})\s+through\s+([A-Za-z]+)\s+\d{1,2},\s+(\d{4})"
+    )
+    for line in txt.splitlines():
+        m = pat.search(line)
+        if m:
+            _, y1, _, y2 = m.groups()
+            try:
+                return int(y1), int(y2)
+            except ValueError:
+                return None, None
+    return None, None
+
+
+def _iter_transaction_lines(txt: str):
+    """
+    Yield lines inside the *start*transaction detail ... block.
+    """
+    in_block = False
+    for line in txt.splitlines():
+        if "*start*transaction detail" in line:
+            in_block = True
+            continue
+        if in_block and line.strip().startswith("*end*"):
+            break
+        if in_block:
+            yield line
+
+
+def _parse_chase_transaction_detail(path: Path):
+    """
+    Parse a single _ocr.txt file in the Chase table layout and return a list
+    of dicts compatible with the Transaction insertion logic.
+    """
+    try:
+        txt = path.read_text(errors="ignore")
+    except Exception:
+        return []
+
+    start_year, end_year = _extract_statement_years(txt)
+    current_year = start_year or end_year
+    prev_month = None
+
+    line_re = re.compile(
+        r"^\s*(\d{2})/(\d{2})\s+(.+?)\s+(-?\d[\d,]*\.\d{2})\s+(-?\d[\d,]*\.\d{2})\s*$"
+    )
+
+    rows = []
+
+    for line in _iter_transaction_lines(txt):
+        m = line_re.match(line)
+        if not m:
+            continue
+
+        mm, dd, desc, amt_str, _bal_str = m.groups()
+        month = int(mm)
+        day = int(dd)
+
+        if current_year is None:
+            current_year = end_year or start_year
+
+        if prev_month is None:
+            prev_month = month
+        else:
+            if month < prev_month and end_year and current_year == start_year:
+                current_year = end_year
+            prev_month = month
+
+        year = current_year or (end_year or start_year or _date_cls.today().year)
+
+        ctx = f"{desc} {amt_str}"
+        amt_signed = parse_signed_amount(amt_str, context=ctx)
+        direction = "debit" if amt_signed < 0 else "credit"
+
+        iso_date = f"{year:04d}-{month:02d}-{day:02d}"
+        desc_clean = " ".join(desc.split())
+        note = f"from {path.name}"
+
+        rows.append(
+            {
+                "Date": iso_date,
+                "Amount": float(amt_signed),
+                "Direction": direction,
+                "Source": "Statement OCR",
+                "Account": "",
+                "Merchant": desc_clean,
+                "Description": desc_clean,
+                "Category": "",
+                "Notes": note,
+            }
+        )
+
+    # Extra pass: Millennium Healt Direct Dep lines outside the detail block
+    payroll_re = re.compile(
+        r"(\d{2})/(\d{2})\s+Millennium Healt\s+Direct Dep\s+PPD ID:\s*\d+\s+(-?\d[\d,]*\.\d{2})\s+(-?\d[\d,]*\.\d{2})"
+    )
+
+    for m in payroll_re.finditer(txt):
+        mm, dd, amt_str, _bal_str = m.groups()
+        month = int(mm)
+        day = int(dd)
+
+        year = current_year or (end_year or start_year or _date_cls.today().year)
+
+        ctx = f"Millennium Healt Direct Dep {amt_str}"
+        amt_signed = parse_signed_amount(amt_str, context=ctx)
+        direction = "debit" if amt_signed < 0 else "credit"
+
+        iso_date = f"{year:04d}-{month:02d}-{day:02d}"
+        desc_clean = "Millennium Healt Direct Dep PPD ID: 9111111103"
+        note = f"from {path.name} (payroll line outside detail block)"
+
+        already = any(
+            r["Date"] == iso_date
+            and abs(Decimal(str(r["Amount"])) - amt_signed) < Decimal("0.005")
+            and "Millennium Healt" in r["Merchant"]
+            for r in rows
+        )
+        if already:
+            continue
+
+        rows.append(
+            {
+                "Date": iso_date,
+                "Amount": float(amt_signed),
+                "Direction": direction,
+                "Source": "Statement OCR",
+                "Account": "",
+                "Merchant": desc_clean,
+                "Description": desc_clean,
+                "Category": "Income:Payroll",
+                "Notes": note,
+            }
+        )
+
+    return rows
+
+
+# ----------------------------------------------------------------------
+# PayPal Credit / PayPal Cashback Synchrony statement parsing
+# ----------------------------------------------------------------------
+
+
+def _is_paypal_credit_statement(txt: str) -> bool:
+    """
+    Heuristic: detect PayPal Credit / PayPal Cashback Synchrony statements.
+    """
+    t = txt.upper()
+    return (
+        "PAYPAL" in t
+        and "TRANSACTION DETAILS" in t
+        and "ACCOUNT NUMBER" in t
+    )
+
+
+def _extract_paypal_statement_year(txt: str):
+    """
+    Look for 'Payment due date MM/DD/YYYY' and return (due_year, due_month).
+    """
+    m = re.search(r"Payment due date\s+(\d{2})/(\d{2})/(\d{4})", txt)
+    if not m:
+        return None, None
+    mm, dd, yyyy = m.groups()
+    try:
+        return int(yyyy), int(mm)
+    except ValueError:
+        return None, None
+
+
+def _paypal_txn_iso_date(mm_dd: str, statement_year: int, due_month: int) -> str:
+    """
+    Convert MM/DD to YYYY-MM-DD, inferring year from the statement due month.
+
+    If due_month is January (1) and the transaction month > due_month,
+    assume previous calendar year (December charges on a Jan due-date
+    statement).
+    """
+    mm, dd = mm_dd.split("/")
+    month = int(mm)
+    day = int(dd)
+    year = statement_year
+
+    if due_month == 1 and month > due_month:
+        year = statement_year - 1
+
+    return f"{year:04d}-{month:02d}-{day:02d}"
+
+
+def _parse_paypal_credit_detail(path: Path):
+    """
+    Parse a PayPal Credit / PayPal Cashback Synchrony statement OCR text file
+    into normalized row dicts.
+
+    Expected layout (in OCR text):
+        Transaction details
+        Date Reference # Description           Amount
+        Payments -$29.00
+        04/15 8521... PAYMENT - THANK YOU -$29.00
+        Purchases and Other Debits $49.03
+        03/30 85... PAYPAL PURCHASE ... $30.77
+        ALIPAYUSINC
+        ...
+        Total Fees Charged This Period $31.00
+        04/12 LATE FEE $29.00
+    """
+    try:
+        txt = path.read_text(errors="ignore")
+    except Exception:
+        return []
+
+    if not _is_paypal_credit_statement(txt):
+        return []
+
+    stmt_year, due_month = _extract_paypal_statement_year(txt)
+    if stmt_year is None:
+        today = _date_cls.today()
+        stmt_year = today.year
+        due_month = today.month
+
+    lines = txt.splitlines()
+
+    # Find "Transaction details"
+    start_idx = None
+    for i, line in enumerate(lines):
+        if "Transaction details" in line:
+            start_idx = i
+            break
+    if start_idx is None:
+        return []
+
+    # Skip header lines until after the 'Date Reference #' row
+    idx = start_idx + 1
+    while idx < len(lines):
+        line = lines[idx].rstrip("\n")
+
+        if "Date" in lines[idx] and "Amount" in lines[idx]:
+            idx += 1
+            break
+
+        idx += 1
+
+    rows = []
+    current_section = None  # "payments", "purchases", "fees", "interest"
+
+    detail_re = re.compile(
+        r"^\s*(\d{2}/\d{2})\s+(\S+)\s+(.*\S)\s+(-?\$?\d[\d,]*\.\d{2})\s*$"
+    )
+
+    def _update_section(line: str):
+        t = line.upper()
+        if "PAYMENTS" in t:
+            return "payments"
+        if "PURCHASES AND OTHER DEBITS" in t:
+            return "purchases"
+        if "TOTAL FEES CHARGED THIS PERIOD" in t or "FEES" in t:
+            return "fees"
+        if "TOTAL INTEREST CHARGED THIS PERIOD" in t or "INTEREST CHARGED" in t:
+            return "interest"
+        return None
+
+    def _section_category(section: str, desc_upper: str) -> str:
+        if section == "purchases":
+            return "Spending:Purchases"
+        if section == "payments":
+            return "Transfer:Card Payment"
+        if section == "fees":
+            return "Fees:Card Fees"
+        if section == "interest":
+            return "Fees:Interest"
+        if "CASHBACK" in desc_upper:
+            return "Rewards/Cashback"
+        return ""
+
+    def _section_direction_and_amount(section: str, raw_amount: str, desc_upper: str):
+        amt_signed = parse_signed_amount(raw_amount, context=desc_upper)
+
+        if section in ("purchases", "fees", "interest"):
+            if amt_signed > 0:
+                amt_signed = -amt_signed
+            direction = "debit"
+        elif section == "payments":
+            # Treat as transfer; positive from the card perspective
+            if amt_signed < 0:
+                amt_signed = -amt_signed
+            direction = "transfer"
+        else:
+            direction = "credit" if amt_signed > 0 else "debit"
+
+        return amt_signed, direction
+
+    last_row = None
+
+    while idx < len(lines):
+        line = lines[idx].rstrip("\n")
+
+        if "Cardholder news and information" in line:
+            break
+
+        sec = _update_section(line)
+        if sec:
+            current_section = sec
+            idx += 1
+            continue
+
+        # Continuation line: no date, no amount, but we had a last_row
+        if last_row is not None and not detail_re.match(line):
+            stripped = line.strip()
+            if stripped and not re.match(r"^\d{2}/\d{2}", stripped):
+                last_row["Description"] = f"{last_row['Description']} {stripped}"
+                last_row["Merchant"] = last_row["Description"]
+            idx += 1
+            continue
+
+        m = detail_re.match(line)
+        if not m:
+            idx += 1
+            continue
+
+        mm_dd, ref, desc, amt_str = m.groups()
+        desc_clean = " ".join(desc.split())
+        desc_upper = desc_clean.upper()
+        iso_date = _paypal_txn_iso_date(mm_dd, stmt_year, due_month)
+
+        amt_signed, direction = _section_direction_and_amount(
+            current_section or "", amt_str, desc_upper
+        )
+        category = _section_category(current_section or "", desc_upper)
+
+        note = f"from {path.name} (PayPal credit detail)"
+
+        row = {
+            "Date": iso_date,
+            "Amount": float(amt_signed),
+            "Direction": direction,
+            "Source": "PayPal Credit",
+            "Account": "PayPal Credit",
+            "Merchant": desc_clean,
+            "Description": desc_clean,
+            "Category": category,
+            "Notes": note,
+        }
+        rows.append(row)
+        last_row = row
+
+        idx += 1
+
+    return rows
+
+
+# ======================================================================
+# High-level pipeline used by /import/ocr
+# ======================================================================
 
 
 def process_uploaded_statement_files(
@@ -608,7 +1221,7 @@ def process_uploaded_statement_files(
       * if a file with that checksum already exists in statements_dir, skip it
       * otherwise OCR → *_ocr.txt in statements_dir
     - Then parse all *_ocr.txt files via existing statement-parse logic
-      (delegated to process_statement_files).
+      (generic parser + Chase + Capital One + PayPal Credit).
 
     Returns a dict with stats for UI flash messages.
     """
@@ -618,10 +1231,9 @@ def process_uploaded_statement_files(
 
     allowed_exts = {".pdf", ".png", ".jpg", ".jpeg"}
 
-    # Build checksum index for already-processed files
+    # Build checksum index for already-processed text files
     existing_checksums = {}
     for txt in statements_dir.glob("*_ocr.txt"):
-        # Build checksum from source PDF/image if still present, or from text itself
         try:
             existing_checksums[compute_checksum(txt)] = txt.name
         except Exception:
@@ -630,6 +1242,9 @@ def process_uploaded_statement_files(
     saved_files = 0
     skipped_files = 0
 
+    # ----------------------------------------------------------
+    # 1) OCR new uploaded files → *_ocr.txt
+    # ----------------------------------------------------------
     for f in uploads_dir.iterdir():
         if not f.is_file():
             continue
@@ -641,196 +1256,30 @@ def process_uploaded_statement_files(
             skipped_files += 1
             continue
 
-        # New file → generate OCR text with a name that embeds date or original stem
         out_txt = statements_dir / f"{f.stem}_ocr.txt"
         try:
-            # Run OCR multiple times and compare outputs for consistency
             ocr_to_text_with_consistency(f, out_txt, passes=3)
             saved_files += 1
             existing_checksums[ch] = out_txt.name
         except Exception as e:
             print(f"[OCR] Failed to OCR {f}: {e}")
 
-    # Now call existing logic to parse all statement *_ocr.txt files.
-    # Collect all *_ocr.txt files and feed them to process_statement_files.
-    from datetime import date as _date_cls
-    import re
-
     txt_paths = sorted(statements_dir.glob("*_ocr.txt"))
     added_count = 0
 
-    # 1) Run the legacy parser first (handles newer 2025-style files).
+    # ----------------------------------------------------------
+    # 2) Generic parser (very loose, mostly for simple layouts)
+    # ----------------------------------------------------------
     if txt_paths:
         try:
             process_statement_files(txt_paths)
         except TypeError:
-            # Older signature that might do its own discovery.
+            # Older signature that did its own discovery
             process_statement_files()
 
-    # 2) Extra parsing pass for Chase "TRANSACTION DETAIL" tables (e.g. 2023–2024).
-    # These look like:
-    #    12/15          Card Purchase         12/13 Crownview Medical Group Coronado CA Card      -80.00        206.45
-    #
-    # We only insert rows that do NOT already exist (date+amount+merchant+notes match).
-
-    MONTHS = {
-        "JANUARY": 1, "FEBRUARY": 2, "MARCH": 3, "APRIL": 4,
-        "MAY": 5, "JUNE": 6, "JULY": 7, "AUGUST": 8,
-        "SEPTEMBER": 9, "OCTOBER": 10, "NOVEMBER": 11, "DECEMBER": 12,
-    }
-
-    def _extract_statement_years(txt: str):
-        """
-        Find a line like: 'December 15, 2023 through January 16, 2024'
-        and return (start_year, end_year). If not found, return (None, None).
-        """
-        pat = re.compile(
-            r"([A-Za-z]+)\s+\d{1,2},\s+(\d{4})\s+through\s+([A-Za-z]+)\s+\d{1,2},\s+(\d{4})"
-        )
-        for line in txt.splitlines():
-            m = pat.search(line)
-            if m:
-                _, y1, _, y2 = m.groups()
-                try:
-                    return int(y1), int(y2)
-                except ValueError:
-                    return None, None
-        return None, None
-
-    def _iter_transaction_lines(txt: str):
-        """
-        Yield lines inside the *start*transaction detail ... block.
-        """
-        in_block = False
-        for line in txt.splitlines():
-            if "*start*transaction detail" in line:
-                in_block = True
-                continue
-            if in_block and line.strip().startswith("*end*"):
-                break
-            if in_block:
-                yield line
-
-    def _parse_chase_transaction_detail(path):
-        """
-        Parse a single _ocr.txt file in the Chase table layout and return a list
-        of dicts compatible with the Transaction insertion logic.
-        """
-        try:
-            txt = path.read_text(errors="ignore")
-        except Exception:
-            return []
-
-        start_year, end_year = _extract_statement_years(txt)
-        current_year = start_year or end_year
-        prev_month = None
-
-        # Example line:
-        # 12/15          Card Purchase         12/13 Something Desc ...                      -80.00        206.45
-        line_re = re.compile(
-            r"^\s*(\d{2})/(\d{2})\s+(.+?)\s+(-?\d[\d,]*\.\d{2})\s+(-?\d[\d,]*\.\d{2})\s*$"
-        )
-
-        rows = []
-
-        for line in _iter_transaction_lines(txt):
-            m = line_re.match(line)
-            if not m:
-                continue
-
-            mm, dd, desc, amt_str, _bal_str = m.groups()
-            month = int(mm)
-            day = int(dd)
-
-            # Infer year across the statement period (e.g. Dec 2023 → Jan 2024).
-            if current_year is None:
-                current_year = end_year or start_year
-
-            if prev_month is None:
-                prev_month = month
-            else:
-                # If month "wraps around" (12 → 01), bump to end_year if available.
-                if month < prev_month and end_year and current_year == start_year:
-                    current_year = end_year
-                prev_month = month
-
-            year = current_year or (end_year or start_year or _date_cls.today().year)
-
-            # Parse amount via shared signed-amount helper so debits are negative, credits positive.
-            ctx = f"{desc} {amt_str}"
-            amt_signed = parse_signed_amount(amt_str, context=ctx)
-            direction = "debit" if amt_signed < 0 else "credit"
-
-            iso_date = f"{year:04d}-{month:02d}-{day:02d}"
-            desc_clean = " ".join(desc.split())
-            note = f"from {path.name}"
-
-            rows.append(
-                {
-                    "Date": iso_date,
-                    "Amount": amt_signed,
-                    "Direction": direction,
-                    "Source": "Statement OCR",
-                    "Account": "",
-                    "Merchant": desc_clean,
-                    "Description": desc_clean,
-                    "Category": "",
-                    "Notes": note,
-                }
-            )
-
-
-        # ------------------------------------------------------------------
-        # Extra pass: catch Millennium Healt Direct Dep lines that may
-        # live outside the TRANSACTION DETAIL block in some statements.
-        # ------------------------------------------------------------------
-        payroll_re = re.compile(
-            r"(\d{2})/(\d{2})\s+Millennium Healt\s+Direct Dep\s+PPD ID:\s*\d+\s+(-?\d[\d,]*\.\d{2})\s+(-?\d[\d,]*\.\d{2})"
-        )
-
-        for m in payroll_re.finditer(txt):
-            mm, dd, amt_str, _bal_str = m.groups()
-            month = int(mm)
-            day = int(dd)
-
-            # Use the same year inference as above, falling back to statement years.
-            year = current_year or (end_year or start_year or _date_cls.today().year)
-
-            ctx = f"Millennium Healt Direct Dep {amt_str}"
-            amt_signed = parse_signed_amount(amt_str, context=ctx)
-            direction = "debit" if amt_signed < 0 else "credit"
-
-            iso_date = f"{year:04d}-{month:02d}-{day:02d}"
-            desc_clean = "Millennium Healt Direct Dep PPD ID: 9111111103"
-            note = f"from {path.name} (payroll line outside detail block)"
-
-            # Avoid inserting duplicates if this line was somehow already captured.
-            already = any(
-                r["Date"] == iso_date
-                and abs(r["Amount"] - amt_signed) < 0.005
-                and "Millennium Healt" in r["Merchant"]
-                for r in rows
-            )
-            if already:
-                continue
-
-            rows.append(
-                {
-                    "Date": iso_date,
-                    "Amount": amt_signed,
-                    "Direction": direction,
-                    "Source": "Statement OCR",
-                    "Account": "",
-                    "Merchant": desc_clean,
-                    "Description": desc_clean,
-                    "Category": "Income:Payroll",
-                    "Notes": note,
-                }
-            )
-
-        return rows
-
-    # Insert parsed rows, skipping duplicates on (date, amount, merchant, notes).
+    # ----------------------------------------------------------
+    # 3) Chase statement extra pass (TRANSACTION DETAIL blocks)
+    # ----------------------------------------------------------
     if txt_paths and db_session is not None and Transaction is not None:
         for path in txt_paths:
             extra_rows = _parse_chase_transaction_detail(path)
@@ -840,11 +1289,10 @@ def process_uploaded_statement_files(
                 except Exception:
                     tx_date = None
 
-                amount = row["Amount"]
+                amount = Decimal(str(row["Amount"]))
                 merchant = row["Merchant"]
                 notes = row["Notes"]
 
-                # Duplicate check.
                 existing = (
                     db_session.query(Transaction)
                     .filter_by(
@@ -874,13 +1322,111 @@ def process_uploaded_statement_files(
 
         db_session.commit()
 
+    # ----------------------------------------------------------
+    # 4) Capital One 0728 statements extra pass
+    # ----------------------------------------------------------
+    if txt_paths and db_session is not None and Transaction is not None:
+        for path in txt_paths:
+            cap_rows = _parse_capone_0728_statement(path)
+            if not cap_rows:
+                continue
+
+            for row in cap_rows:
+                try:
+                    tx_date = _date_cls.fromisoformat(row["Date"])
+                except Exception:
+                    tx_date = None
+
+                amount = Decimal(str(row["Amount"]))
+                merchant = row["Merchant"]
+                notes = row["Notes"]
+
+                existing = (
+                    db_session.query(Transaction)
+                    .filter_by(
+                        date=tx_date,
+                        amount=amount,
+                        merchant=merchant,
+                        notes=notes,
+                    )
+                    .first()
+                )
+                if existing:
+                    continue
+
+                tx = Transaction(
+                    date=tx_date,
+                    amount=amount,
+                    direction=row["Direction"],
+                    source_system=row["Source"],
+                    account_name=row["Account"],
+                    merchant=merchant,
+                    description=row["Description"],
+                    category=row["Category"],
+                    notes=notes,
+                )
+                db_session.add(tx)
+                added_count += 1
+
+        db_session.commit()
+
+    # ----------------------------------------------------------
+    # 5) PayPal Credit / PayPal Cashback Synchrony extra pass
+    # ----------------------------------------------------------
+    if txt_paths and db_session is not None and Transaction is not None:
+        for path in txt_paths:
+            paypal_rows = _parse_paypal_credit_detail(path)
+            if not paypal_rows:
+                continue
+
+            for row in paypal_rows:
+                try:
+                    tx_date = _date_cls.fromisoformat(row["Date"])
+                except Exception:
+                    tx_date = None
+
+                amount = Decimal(str(row["Amount"]))
+                merchant = row["Merchant"]
+                notes = row["Notes"]
+
+                existing = (
+                    db_session.query(Transaction)
+                    .filter_by(
+                        date=tx_date,
+                        amount=amount,
+                        merchant=merchant,
+                        notes=notes,
+                    )
+                    .first()
+                )
+                if existing:
+                    continue
+
+                tx = Transaction(
+                    date=tx_date,
+                    amount=amount,
+                    direction=row["Direction"],
+                    source_system=row["Source"],
+                    account_name=row["Account"],
+                    merchant=merchant,
+                    description=row["Description"],
+                    category=row["Category"],
+                    notes=notes,
+                )
+                db_session.add(tx)
+                added_count += 1
+
+        db_session.commit()
+
+    # ----------------------------------------------------------
+    # 6) Coverage stats (for banners/reports)
+    # ----------------------------------------------------------
     stats = {
         "saved_files": saved_files,
         "skipped_duplicates": skipped_files,
         "added_transactions": added_count,
     }
 
-    # Global OCR coverage stats (for nicer banner + report)
     if db_session is not None and Transaction is not None:
         try:
             coverage = compute_ocr_coverage(
@@ -892,18 +1438,6 @@ def process_uploaded_statement_files(
             pass
 
     return stats
-
-# --- OCR coverage + report helpers -----------------------------------------
-
-# Lines like:
-#   "  12/18  Card Purchase  ...   -80.00         206.45"
-_TX_LINE_RE = re.compile(
-    r"^\s*(\d{2}/\d{2})\s+"
-    r"(.*?)\s+"
-    r"(-?\d[\d,]*\.\d{2})\s+"
-    r"(-?\d[\d,]*\.\d{2})\s*$"
-)
-
 
 def _count_candidates_in_file(path: Path) -> int:
     """
@@ -1006,9 +1540,113 @@ def build_import_report(statements_dir: Path, db_session, Transaction):
         },
     }
 
-# =====================================================================
-# Signed-amount parsing helpers (single source of truth for +/- amounts)
-# =====================================================================
-import re
 
-# Words that strongly suggest a DEBIT (money leaving you)
+# === Capital One CSV support ===
+
+def parse_capone_date(s: str):
+    """
+    Capital One CSV uses ISO dates: YYYY-MM-DD
+    """
+    s = (s or "").strip()
+    if not s:
+        return None
+    return datetime.strptime(s, "%Y-%m-%d").date()
+
+
+def _parse_capone_amount(row: dict) -> Decimal:
+    """
+    Capital One CSV has separate Debit and Credit columns.
+
+    - Debit  (charges, purchases, interest) -> money out  -> NEGATIVE
+    - Credit (payments, refunds)            -> money in   -> POSITIVE
+    """
+    debit_raw = (row.get("Debit") or "").strip()
+    credit_raw = (row.get("Credit") or "").strip()
+
+    def to_dec(s: str) -> Decimal:
+        s = s.replace("$", "").replace(",", "").strip()
+        if not s:
+            return Decimal("0")
+        try:
+            return Decimal(s)
+        except InvalidOperation:
+            return Decimal("0")
+
+    debit = to_dec(debit_raw)
+    credit = to_dec(credit_raw)
+
+    # spending (debit) -> negative, payments/credits -> positive
+    return credit - debit
+
+
+def iter_capone_csv_rows(base_dir: Path):
+    """
+    Yield normalized row dicts for Capital One CSV exports in:
+
+        base_dir / "capone" / *.csv
+    """
+    capone_dir = base_dir / "capone"
+    if not capone_dir.exists():
+        return  # nothing to do
+
+    for csv_path in sorted(capone_dir.glob("*.csv")):
+        with csv_path.open("r", newline="", encoding="utf-8-sig") as f:
+            reader = csv.DictReader(f)
+            for raw in reader:
+                # 1) Date
+                date_str = (raw.get("Transaction Date") or "").strip()
+                tx_date = parse_capone_date(date_str)
+
+                # 2) Description / merchant
+                description = (raw.get("Description") or "").strip()
+
+                # 3) Card number -> last 4 -> account name
+                card_no = (raw.get("Card No.") or "").strip()
+                last4 = card_no[-4:] if len(card_no) >= 4 else card_no
+                account_name = f"Capital One {last4 or 'Unknown'}"
+
+                # 4) Amount (Debit/Credit -> signed)
+                amount = _parse_capone_amount(raw)
+
+                # 5) Category (optional, but nice to keep somewhere)
+                category = (raw.get("Category") or "").strip()
+
+                raw_desc = (
+                    f"{csv_path.name} | {date_str} | {description} | "
+                    f"{card_no} | {category}"
+                )
+
+                yield {
+                    "date": tx_date,
+                    "amount": amount,
+                    "merchant": description or "Capital One transaction",
+                    "account_name": account_name,
+                    "source_system": "Capital One CSV",
+                    "raw_desc": raw_desc,
+                }
+
+def collect_all_ocr_rows(base_dir: Path = Path("ocr_output")):
+    """
+    Unified generator for all imported transaction rows.
+
+    - Chase OCR
+    - Capital One CSV
+    """
+    # Existing Chase OCR rows
+    for row in iter_chase_ocr_rows(base_dir):
+        yield row
+
+    # New: Capital One CSV rows
+    for row in iter_capone_csv_rows(base_dir):
+        yield row
+
+def collect_all_ocr_rows(base_dir: Path = Path("ocr_output")):
+    """
+    Unified generator for imported transaction rows.
+
+    TEMP: Only Capital One CSV rows (Chase OCR disabled here to avoid NameError).
+    We can re-add Chase once iter_chase_ocr_rows is confirmed in this module.
+    """
+    for row in iter_capone_csv_rows(base_dir):
+        yield row
+
