@@ -265,112 +265,40 @@ def build_monthly_summary(txs):
 # -------------------------------------------------------------------
 
 
-@app.route("/")
-def dashboard():
-    # Totals
-    total_spending = (
-        db.session.query(func.sum(Transaction.amount))
-        .filter(Transaction.amount < 0)
-        .scalar()
-        or 0.0
-    )
-    total_income = (
-        db.session.query(func.sum(Transaction.amount))
-        .filter(Transaction.amount > 0)
-        .scalar()
-        or 0.0
-    )
-    net = total_income + total_spending
+@app.route("/capone_csv_summary")
 
-    # Spending by category (absolute values for chart)
-    cat_rows = (
+
+def get_capone_csv_summary():
+    """Return monthly Capital One CSV summary as JSON- and Jinja-friendly dicts."""
+    rows = (
         db.session.query(
-            Transaction.category,
-            func.sum(Transaction.amount),
+            db.func.strftime("%Y-%m", Transaction.date).label("ym"),
+            Transaction.account_name,
+            db.func.sum(Transaction.amount).label("sum_amount"),
+            db.func.count().label("count_rows"),
         )
-        .group_by(Transaction.category)
+        .filter(
+            Transaction.source_system == "Capital One CSV",
+            Transaction.date >= date(2025, 1, 1),
+        )
+        .group_by("ym", Transaction.account_name)
+        .order_by("ym", Transaction.account_name)
         .all()
     )
 
-    cat_labels = []
-    cat_values = []
-    for cat, amt in cat_rows:
-        label = cat or "Uncategorized"
-        cat_labels.append(label)
-        cat_values.append(abs(float(amt or 0.0)))
-
-    by_category = {
-        "labels": cat_labels,
-        "data": cat_values,
-        "values": cat_values,
-    }
-
-    # Daily running net
-    daily_rows = (
-        db.session.query(
-            Transaction.date,
-            func.sum(Transaction.amount),
-        )
-        .group_by(Transaction.date)
-        .order_by(Transaction.date)
-        .all()
-    )
-
-    running = 0.0
-    daily_net = []
-    for d, amt in daily_rows:
-        running += float(amt or 0.0)
-        daily_net.append({"date": d.isoformat(), "net": round(running, 2)})
-
-    # --- Monthly aggregation for dashboard "Monthly Net Overview" ---
-    txs = Transaction.query.order_by(Transaction.date.asc()).all()
-    monthly_map = OrderedDict()
-
-    for tx in txs:
-        if not tx.date:
-            continue
-
-        key = tx.date.strftime("%Y-%m")  # e.g. "2025-11"
-        bucket = monthly_map.setdefault(
-            key,
+    # Convert SQLAlchemy Row objects into plain dicts with simple types
+    summary = []
+    for r in rows:
+        summary.append(
             {
-                "year": tx.date.year,
-                "month": tx.date.month,
-                "label": tx.date.strftime("%b %Y"),  # "Nov 2025"
-                "income": 0.0,
-                "spending": 0.0,
-                "net": 0.0,
-            },
+                "ym": r.ym,
+                "account_name": r.account_name,
+                "sum_amount": float(r.sum_amount or 0),
+                "count_rows": int(r.count_rows or 0),
+            }
         )
+    return summary
 
-        amt = float(tx.amount or 0)
-        if amt >= 0:
-            bucket["income"] += amt
-        else:
-            bucket["spending"] += amt
-        bucket["net"] += amt
-
-    monthly = list(monthly_map.values())
-
-    if monthly:
-        monthly_overview_message = ""
-    else:
-        monthly_overview_message = (
-            "No monthly data yet. Import some transactions to see this overview."
-        )
-
-    return render_template(
-        "dashboard.html",
-        net=net,
-        total_spending=total_spending,
-        total_income=total_income,
-        cat_labels=cat_labels,
-        cat_values=cat_values,
-        by_category=by_category,
-        daily_net=daily_net,
-        monthly=monthly,
-        monthly_overview_message=monthly_overview_message,
-    )
 
 
 @app.route("/transactions")
@@ -648,104 +576,98 @@ def add_manual():
 
 
 
+
+
+@app.route("/capone_csv_summary")
+def capone_csv_summary():
+    capone_summary = get_capone_csv_summary()
+    rows = [
+        {
+            "ym": r.ym,
+            "account_name": r.account_name,
+            "sum_amount": float(r.sum_amount or 0),
+            "count_rows": int(r.count_rows or 0),
+        }
+        for r in capone_summary
+    ]
+    return rows
+
+
+
+@app.route("/", methods=["GET"])
+# ORPHANED DEF REMOVED: def root_index():
+    # Main entry: send / to the reports/dashboard page
+        
+@app.route("/")
+def root_index():
+    """Root URL = dashboard page."""
+    return dashboard()
+
+
+@app.route("/dashboard")
+def dashboard():
+    """
+    Main dashboard with high-level summary and recent transactions.
+    Uses all non-transfer transactions.
+    """
+    from sqlalchemy import func
+
+    # Base query: ignore transfers where possible
+    base_q = Transaction.query.filter(
+        (Transaction.is_transfer == False) | (Transaction.is_transfer.is_(None))
+    )
+
+    # Recent transactions (newest first)
+    transactions = (
+        base_q.order_by(Transaction.date.desc(), Transaction.id.desc()).all()
+    )
+
+    num_transactions = len(transactions)
+    first_date = transactions[-1].date if transactions else None
+    last_date = transactions[0].date if transactions else None
+
+    # Totals across ALL non-transfer transactions
+    income_total = (
+        db.session.query(func.coalesce(func.sum(Transaction.amount), 0))
+        .filter(
+            (Transaction.amount > 0),
+            (Transaction.is_transfer == False) | (Transaction.is_transfer.is_(None)),
+        )
+        .scalar()
+    )
+
+    expense_total = (
+        db.session.query(func.coalesce(func.sum(Transaction.amount), 0))
+        .filter(
+            (Transaction.amount < 0),
+            (Transaction.is_transfer == False) | (Transaction.is_transfer.is_(None)),
+        )
+        .scalar()
+    )
+
+    net_total = (income_total or 0) + (expense_total or 0)
+
+    return render_template(
+        "dashboard.html",
+        transactions=transactions,
+        num_transactions=num_transactions,
+        first_date=first_date,
+        last_date=last_date,
+        income_total=income_total,
+        expense_total=expense_total,
+        net_total=net_total,
+    )
+
 @app.route("/reports")
 def reports():
-    # Get all transactions oldest → newest
-    txs = (
-        Transaction.query
-        .order_by(Transaction.date.asc(), Transaction.id.asc())
-        .all()
-    )
-
-    # Monthly summary
-    monthly_map = OrderedDict()
-    for tx in txs:
-        if not tx.date:
-            continue
-
-        key = tx.date.strftime("%Y-%m")
-        bucket = monthly_map.setdefault(
-            key,
-            {
-                "year": tx.date.year,
-                "month": tx.date.month,
-                "label": tx.date.strftime("%b %Y"),
-                "income": 0.0,
-                "spending": 0.0,
-                "net": 0.0,
-            },
-        )
-
-        amt = float(tx.amount or 0)
-        if amt >= 0:
-            bucket["income"] += amt
-        else:
-            bucket["spending"] += amt
-        bucket["net"] += amt
-
-    monthly = list(monthly_map.values())
-
-    monthly_overview_message = (
-        "" if monthly else "No monthly data yet. Import transactions to see this overview."
-    )
-
-    return render_template(
-        "reports.html",
-        monthly=monthly,
-        monthly_overview_message=monthly_overview_message,
-    )
-
-
-# -------------------------------------------------------------------
-# Main entry
-# -------------------------------------------------------------------
-
-# -------------------------------------------------------------------
-# Import OCR Report
-# -------------------------------------------------------------------
-
-# -------------------------------------------------------------------
-# Import OCR Report
-# -------------------------------------------------------------------
-
-@app.route("/import/report")
-def import_report():
     """
-    Show a coverage report for OCR'd statement files vs. DB rows.
-    Uses helper functions in ocr_pipeline if they are available.
+    Simple reports page stub so url_for('reports') works.
+    You can wire real monthly/category data later.
     """
-    base_dir = Path(app.root_path)
-    stmts_dir = base_dir / "uploads" / "statements"
-
-    coverage = None
-    coverage_error = None
-    if hasattr(ocr_pipeline, "compute_ocr_coverage"):
-        try:
-            coverage = ocr_pipeline.compute_ocr_coverage(stmts_dir)
-        except Exception as e:
-            coverage_error = str(e)
-    else:
-        coverage_error = "compute_ocr_coverage() helper not found in ocr_pipeline."
-
-    db_stats = None
-    db_stats_error = None
-    if hasattr(ocr_pipeline, "compute_ocr_db_stats"):
-        try:
-            db_stats = ocr_pipeline.compute_ocr_db_stats(db.session, Transaction)
-        except Exception as e:
-            db_stats_error = str(e)
-    else:
-        db_stats_error = "compute_ocr_db_stats() helper not found in ocr_pipeline."
-
-    return render_template(
-        "import_report.html",
-        coverage=coverage,
-        db_stats=db_stats,
-        coverage_error=coverage_error,
-        db_stats_error=db_stats_error,
-    )
+    monthly = []
+    categories = []
+    return render_template("reports.html", monthly=monthly, categories=categories)
 
 
 if __name__ == "__main__":
     app.run(debug=True)
-

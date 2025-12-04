@@ -96,3 +96,40 @@ body {
 .import-report-table tbody tr:nth-child(even) {
   background: #fafafa;
 }
+
+
+/* Capital One CSV mini panel */
+.capone-panel {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  font-size: 0.85rem;
+}
+
+.capone-panel h2 {
+  font-size: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.summary-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.summary-table th,
+.summary-table td {
+  padding: 0.25rem 0.4rem;
+  border-bottom: 1px solid #ddd;
+  text-align: right;
+}
+
+.summary-table th:first-child,
+.summary-table td:first-child,
+.summary-table th:nth-child(2),
+.summary-table td:nth-child(2) {
+  text-align: left;
+}
+
+.summary-table tbody tr:nth-child(even) {
+  background-color: #f7f7f7;
+}
