@@ -1,237 +1,236 @@
 #!/usr/bin/env python3
 """
-validate_statement_balances.py v3
+validate_statement_balances.py v3e
 
 For each Chase OCR statement in uploads/statements/*_ocr.txt:
 
 1) Extract beginning and ending balances from the header text.
-   - Understand trailing minus "68.02-" and parentheses "(68.02)".
+   - Understand:
+       68.02-
+       (68.02)
+       -68.02
+       $68.02-
 2) Parse ONLY the TRANSACTION DETAIL block to get per-line amounts.
+   - Lines must start with a date (MM/DD or MM/DD/YY).
+   - Use chase_amount_utils.extract_amount_from_txn_line() so we pick
+     the AMOUNT column, not the running balance.
 3) Check that: ending ≈ beginning + sum(amounts).
 4) Report per-file differences and a summary at the end.
 """
 
 import glob
 import os
-import re
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
-# -------------------------------------------------------------------
-# Helpers for parsing dollar amounts and balances
-# -------------------------------------------------------------------
+from chase_amount_utils import (
+    AMOUNT_RE,
+    DATE_RE,
+    parse_amount_token,
+    extract_amount_from_txn_line,
+)
 
-AMOUNT_RE = re.compile(r"\$?-?\d[\d,]*\.\d{2}")
 
-def parse_amount_raw(token: str):
+def parse_amount_from_line(line: str):
     """
-    Basic amount parser: strip $, commas, and parse a single token.
-    Does NOT handle trailing '-' or parentheses by itself.
+    Find the LAST money-looking chunk in a line and parse it.
+    Used mainly for header-like balance lines.
     """
-    token = token.replace("\u2212", "-")  # Unicode minus
-    token = token.replace(",", "").replace("$", "")
-    try:
-        return Decimal(token)
-    except InvalidOperation:
-        return None
-
-
-def parse_balance_from_line(line: str):
-    """
-    Parse a balance from a header line, handling:
-      - 68.02-
-      - (68.02)
-      - -68.02
-      - $68.02-
-    Strategy:
-      - Find the LAST money-looking chunk in the line.
-      - Inspect for trailing '-' or parentheses to decide sign.
-    """
-    line = line.replace("\u2212", "-")  # normalize unicode minus
     matches = list(AMOUNT_RE.finditer(line))
     if not matches:
         return None
-
-    m = matches[-1]  # use the last numeric chunk; Chase often prints balance last
-    text = m.group(0)
-    start, end = m.span()
-
-    # Look at context around the number
-    trailing = line[end : end + 3]  # just in case "- " or "-\n"
-    leading = line[max(0, start - 2) : start + len(text) + 2]
-
-    minus = False
-    # Case 1: trailing minus, e.g. "68.02-"
-    if "-" in trailing:
-        minus = True
-
-    # Case 2: parentheses "(68.02)"
-    if "(" in leading and ")" in leading:
-        minus = True
-
-    # Parse the numeric part normally (it might already have a leading '-')
-    amt = parse_amount_raw(text)
-    if amt is None:
-        return None
-
-    if minus and amt > 0:
-        amt = -amt
-
-    return amt
+    text = matches[-1].group(0)
+    return parse_amount_token(text)
 
 
-# -------------------------------------------------------------------
-# Header balance extraction
-# -------------------------------------------------------------------
-
-def extract_header_balances(text: str):
+def find_header_balances(lines):
     """
-    Try to extract 'Beginning balance' and 'Ending balance' from the header
-    region of a Chase OCR statement.
+    Try to extract beginning and ending balances from the header area.
 
-    We scan roughly the first 200 lines, looking for lines that contain those
-    phrases and then apply parse_balance_from_line() for sign-aware parsing.
+    We first look for explicit keywords like 'beginning balance',
+    'previous balance', 'ending balance', 'new balance'.
+
+    If that fails, we fall back to:
+      - begin = first amount we see in the top N lines
+      - end   = the last amount we see in the whole file
+
+    Returns (begin, end, from_keywords: bool)
     """
     begin = None
     end = None
+    from_keywords = False
 
-    lines = text.splitlines()
-    header_lines = lines[:200]
+    header_slice = lines[:120]
 
-    for line in header_lines:
-        low = line.lower()
-        if "beginning balance" in low and begin is None:
-            begin = parse_balance_from_line(line)
-        if "ending balance" in low and end is None:
-            end = parse_balance_from_line(line)
+    for line in header_slice:
+        lower = line.lower()
 
-    return begin, end
+        if any(k in lower for k in ["beginning balance", "previous balance", "starting balance"]):
+            if begin is None:
+                begin = parse_amount_from_line(line)
+
+        if any(k in lower for k in ["ending balance", "new balance", "closing balance"]):
+            if end is None:
+                end = parse_amount_from_line(line)
+
+    if begin is not None or end is not None:
+        from_keywords = True
+        return begin, end, from_keywords
+
+    # Fallback: guess from first and last amounts
+
+    # Guess beginning as first amount in header slice
+    for line in header_slice:
+        m = AMOUNT_RE.search(line)
+        if m:
+            begin = parse_amount_token(m.group(0))
+            if begin is not None:
+                break
+
+    # Guess ending as last amount in entire file
+    for line in reversed(lines):
+        m = None
+        for match in AMOUNT_RE.finditer(line):
+            m = match
+        if m:
+            end = parse_amount_token(m.group(0))
+            if end is not None:
+                break
+
+    return begin, end, from_keywords
 
 
-# -------------------------------------------------------------------
-# Helpers for locating the TRANSACTION DETAIL block and summing txns
-# -------------------------------------------------------------------
-
-DETAIL_START_MARKERS = [
-    "transaction detail",
-    "checking account activity",
-    "checking activity",
-]
-
-DETAIL_END_MARKERS = [
-    "daily ending balance",
-    "total deposits and additions",
-    "total withdrawals and debits",
-    "total checks paid",
-    "overdraft and returned item fees",
-    "in case of errors or questions",
-]
-
-def iter_detail_lines(text: str):
+def find_detail_block(lines):
     """
-    Yield lines that are within the TRANSACTION DETAIL block.
-
-    We flip a boolean once we see a 'start marker', and stop once we
-    hit an 'end marker'.
+    Locate the TRANSACTION DETAIL block boundaries (start_idx, end_idx).
+    If we can't find it, return (None, None).
     """
-    lines = text.splitlines()
-    in_detail = False
+    start_idx = None
 
-    for line in lines:
-        low = line.lower()
-
-        if not in_detail:
-            if any(m in low for m in DETAIL_START_MARKERS):
-                in_detail = True
-            continue
-
-        # Once we're in the detail section, look for an end marker
-        if any(m in low for m in DETAIL_END_MARKERS):
+    for i, line in enumerate(lines):
+        if "transaction detail" in line.lower():
+            start_idx = i + 1
             break
 
-        yield line
+    if start_idx is None:
+        return None, None
+
+    stop_markers = [
+        "daily balance summary",
+        "balance summary",
+        "fees summary",
+        "fee summary",
+        "interest summary",
+        "total for this period",
+        "ending balance",
+        "chase overdraft",
+    ]
+
+    end_idx = len(lines)
+    for j in range(start_idx, len(lines)):
+        low = lines[j].lower()
+        if any(m in low for m in stop_markers):
+            end_idx = j
+            break
+
+    return start_idx, end_idx
 
 
-def sum_txn_amounts_from_detail(text: str):
+def sum_transaction_detail(lines):
     """
-    Scan only the TRANSACTION DETAIL block and sum transaction amounts.
+    Sum amounts from the TRANSACTION DETAIL block.
 
-    Heuristic:
-      - candidate lines start with MM/DD
-      - we then look for money amounts in the rest of the line
-      - if 2+ money amounts are found, we treat the FIRST as the txn amount
-        and ignore the rest (usually the running balance column).
+    We only count lines that *start with a date*, to avoid section headers
+    or continuation lines.
+
+    We use extract_amount_from_txn_line() to ensure we grab the AMOUNT column.
     """
+    start_idx, end_idx = find_detail_block(lines)
+    if start_idx is None:
+        return None, 0
+
     total = Decimal("0.00")
-    parsed_lines = 0
+    count = 0
 
-    DATE_LINE_RE = re.compile(r"^\s*(\d{2})/(\d{2})\b")
-
-    for line in iter_detail_lines(text):
-        if not DATE_LINE_RE.match(line):
+    for line in lines[start_idx:end_idx]:
+        if not DATE_RE.match(line):
             continue
 
-        nums = AMOUNT_RE.findall(line)
-        if len(nums) < 2:
-            continue
-
-        amt = parse_amount_raw(nums[0])
+        amt = extract_amount_from_txn_line(line)
         if amt is None:
             continue
 
         total += amt
-        parsed_lines += 1
+        count += 1
 
-    return total, parsed_lines
+    return total, count
 
-
-# -------------------------------------------------------------------
-# Main driver
-# -------------------------------------------------------------------
 
 def main():
-    paths = sorted(glob.glob("uploads/statements/*_ocr.txt"))
-    if not paths:
-        print("No OCR statement files found in uploads/statements/")
+    files = sorted(glob.glob("uploads/statements/*_ocr.txt"))
+    if not files:
+        print("No OCR statement files found in uploads/statements.")
         return
 
-    print(f"Found {len(paths)} OCR statement files.\n")
+    print(f"Found {len(files)} OCR statement files.\n")
 
     total_files = 0
     mismatch_files = 0
     sum_abs_diff = Decimal("0.00")
 
-    for path in paths:
-        name = os.path.basename(path)
+    for path in files:
         total_files += 1
+        fname = os.path.basename(path)
+        print(f"=== Validating {fname} ===")
 
-        with open(path, "r", errors="ignore") as f:
-            txt = f.read()
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            text = f.read()
 
-        begin, end = extract_header_balances(txt)
-        txn_sum, parsed_lines = sum_txn_amounts_from_detail(txt)
+        lines = text.splitlines()
 
-        print(f"=== Validating {name} ===")
+        begin, end, from_keywords = find_header_balances(lines)
 
-        if begin is None or end is None:
-            print("  ⚠️ Could not find both beginning and ending balances in header.")
-            print(f"  -> begin: {begin}, end: {end}")
-            print(f"  Parsed txn lines (detail block only): {parsed_lines}")
+        if begin is None and end is None:
+            print("  ⚠️ Could not find beginning or ending balances at all (even heuristic).")
             print()
             continue
 
-        implied_end = begin + txn_sum
-        diff = implied_end - end
-        sum_abs_diff += abs(diff)
+        if not from_keywords:
+            print("  ⚠️ Using heuristic first/last amount as begin/end; may be inaccurate.")
 
-        if diff != 0:
-            mismatch_files += 1
+        if begin is not None:
+            print(f"  Beginning balance    (header/guess): {begin:,.2f}")
+        else:
+            print("  Beginning balance    (header/guess): <missing>")
 
-        print(f"  Beginning balance    (header): {begin:,.2f}")
-        print(f"  Ending balance       (header): {end:,.2f}")
-        print(f"  Sum of txn amounts (detail): {txn_sum:,.2f}")
-        print(f"  Implied ending = begin + sum(txns): {implied_end:,.2f}")
-        print(f"  Difference (implied - header end): {diff:,.2f}")
-        print(f"  Parsed txn lines (detail block) : {parsed_lines}")
+        if end is not None:
+            print(f"  Ending balance       (header/guess): {end:,.2f}")
+        else:
+            print("  Ending balance       (header/guess): <missing>")
+
+        sum_txns, count_txn_lines = sum_transaction_detail(lines)
+
+        if sum_txns is None:
+            print("  ⚠️ Could not locate TRANSACTION DETAIL block.")
+            print()
+            continue
+
+        print(f"  Sum of txn amounts (detail): {sum_txns:,.2f}")
+
+        implied = None
+        diff = None
+
+        if begin is not None:
+            implied = begin + sum_txns
+            print(f"  Implied ending = begin + sum(txns): {implied:,.2f}")
+
+        if implied is not None and end is not None:
+            diff = implied - end
+            print(f"  Difference (implied - header end): {diff:,.2f}")
+            if abs(diff) > Decimal("0.01"):
+                mismatch_files += 1
+                sum_abs_diff += abs(diff)
+
+        print(f"  Parsed txn lines (detail block) : {count_txn_lines}")
         print()
 
     print("============== SUMMARY ==============")
