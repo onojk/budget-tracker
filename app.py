@@ -669,5 +669,48 @@ def reports():
     return render_template("reports.html", monthly=monthly, categories=categories)
 
 
+
+
+from datetime import datetime
+
+
+class OcrRejected(db.Model):
+    __tablename__ = "ocr_rejected"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    # The OCR source file, e.g. "chase_1234_2025-10_ocr.txt"
+    source_file = db.Column(db.String(255), nullable=False)
+
+    # Optional: page or line number in the OCR text
+    line_no = db.Column(db.Integer)
+    page_no = db.Column(db.Integer)
+
+    # The raw line or snippet of text that we couldn't parse
+    raw_text = db.Column(db.Text, nullable=False)
+
+    # Optional: the specific amount we saw in this text (if any)
+    amount_text = db.Column(db.String(32))
+
+    # Why it was rejected (short code: "no_date", "bad_amount", "unknown_section", etc.)
+    reason = db.Column(db.String(64))
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+@app.route("/ocr/rejected")
+def ocr_rejected():
+    """
+    Simple page to browse rejected OCR lines.
+    """
+    rows = (
+        OcrRejected.query
+        .order_by(OcrRejected.source_file, OcrRejected.line_no)
+        .limit(1000)
+        .all()
+    )
+    return render_template("ocr_rejected.html", rows=rows)
+
+
 if __name__ == "__main__":
     app.run(debug=True)
