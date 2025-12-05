@@ -33,9 +33,14 @@
     <a href="{{ url_for('add_manual') }}"
        class="{% if request.endpoint == 'add_manual' %}active{% endif %}">Add Manual</a>
     <a href="{{ url_for('reports') }}"
-       class="{% if request.endpoint == 'reports' %}active{% endif %}">Reports</a>
+       class="{% if request.endpoint == 'reports' %}active{% endif %}">Reports</a> <a href="{{ url_for('ocr_rejected') }}"
+       class="{% if request.endpoint == 'ocr_rejected' %}active{% endif %}">OCR Rejected</a>
   </div>
-      </ul>
+      
+      <li class="nav-item">
+        </li>
+
+    </ul>
     </div>
   </div>
 </nav>

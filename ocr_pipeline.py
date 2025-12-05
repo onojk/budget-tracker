@@ -1650,3 +1650,144 @@ def collect_all_ocr_rows(base_dir: Path = Path("ocr_output")):
     for row in iter_capone_csv_rows(base_dir):
         yield row
 
+
+
+# ---- OCR rejection helpers (append-only scaffolding) ----
+
+# from app import db, OcrRejected  # db and new model from app.py
+import re
+from decimal import Decimal, InvalidOperation
+
+AMOUNT_RE = re.compile(
+    r"(?<![\d.])-?\d{1,3}(?:,\d{3})*\.\d{2}"
+)
+
+
+def extract_amounts_with_spans(text):
+    """
+    Return list of dicts: {'amount_text', 'start', 'end', 'claimed': False}
+    representing every dollar-like amount in the raw OCR text.
+    """
+    amounts = []
+    for m in AMOUNT_RE.finditer(text):
+        amounts.append(
+            {
+                "amount_text": m.group(0),
+                "start": m.start(),
+                "end": m.end(),
+                "claimed": False,
+            }
+        )
+    return amounts
+
+
+def record_rejected_line(source_file, line_no, raw_text, reason, amount_text=None, page_no=None):
+    from app import db, OcrRejected  # lazy import to avoid circular imports
+
+    """
+    Store a single unparsed / rejected OCR line in the OcrRejected table.
+    Commit is left to the caller.
+    """
+    r = OcrRejected(
+        source_file=source_file,
+        line_no=line_no,
+        page_no=page_no,
+        raw_text=raw_text,
+        reason=reason,
+        amount_text=amount_text,
+    )
+    db.session.add(r)
+
+
+def mark_amount_claimed(all_amounts, line_offset, parsed_amount_str):
+    """
+    Mark the first unclaimed amount in this line that matches parsed_amount_str.
+    Intended to be called whenever a transaction line is successfully parsed.
+    """
+    # Normalize for comparison: strip commas
+    target = parsed_amount_str.replace(",", "")
+    for amt in all_amounts:
+        if amt["claimed"]:
+            continue
+        if not (line_offset <= amt["start"] < line_offset + 300):
+            # Quick heuristic: amount must fall near this line offset
+            continue
+        if amt["amount_text"].replace(",", "") == target:
+            amt["claimed"] = True
+            return
+
+# TODO:
+# - Inside your per-file OCR processing function, you can:
+#   1) raw_text = Path(ocr_path).read_text(...)
+#   2) all_amounts = extract_amounts_with_spans(raw_text)
+#   3) For each successfully parsed transaction line, call mark_amount_claimed(...)
+#   4) For any line with AMOUNT_RE.search(line) that fails parsing, call record_rejected_line(...)
+#   5) At the end, any unclaimed entries in all_amounts can be recorded as reason="unclaimed_amount".
+#   This keeps the changes incremental and safe while you evolve the parser.
+
+# ---- OCR rejection helpers (append-only, safe to call from parsing code) ----
+import re as _ocr_re
+from decimal import Decimal as _Decimal, InvalidOperation as _InvalidOperation
+
+_OCR_AMOUNT_RE = _ocr_re.compile(
+    r"(?<![\d.])(-?\d{1,3}(?:,\d{3})*\.\d{2})"
+)
+
+def ocr_parse_decimal(raw):
+    """
+    Small helper: convert a string like "1,234.56" or "-68.02" to Decimal.
+    Returns (Decimal, None) on success, (None, reason) on failure.
+    """
+    if raw is None:
+        return None, "no_amount"
+    try:
+        value = _Decimal(raw.replace(",", ""))
+    except _InvalidOperation:
+        return None, "bad_amount"
+    return value, None
+
+
+def record_rejected_line(source_file, line_no, raw_text, reason, amount_text=None, page_no=None):
+    """
+    Store a single unparsed / rejected OCR line in the OcrRejected table.
+    Import is local to avoid circular imports with app.py.
+    """
+    from app import db, OcrRejected  # lazy import, safe at call time
+
+    r = OcrRejected(
+        source_file=source_file,
+        line_no=line_no,
+        page_no=page_no,
+        raw_text=raw_text,
+        reason=reason,
+        amount_text=amount_text,
+    )
+    db.session.add(r)
+
+
+def scan_unclaimed_amounts(source_file, full_text):
+    """
+    Optional helper: if you have a block of OCR text and some amounts never
+    appeared in any parsed transactions, you can call this to store them.
+
+    This is a coarse fallback; the primary path should be record_rejected_line
+    at the line level.
+    """
+    from app import db, OcrRejected  # lazy import
+
+    for m in _OCR_AMOUNT_RE.finditer(full_text or ""):
+        amt = m.group(1)
+        snippet = (full_text[m.start():m.start()+120] if full_text else amt)
+        db.session.add(
+            OcrRejected(
+                source_file=source_file,
+                line_no=None,
+                page_no=None,
+                raw_text=snippet,
+                reason="unclaimed_amount",
+                amount_text=amt,
+            )
+        )
+    db.session.commit()
+# ---- end OCR rejection helpers ----
+

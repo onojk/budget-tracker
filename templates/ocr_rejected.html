@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Rejected OCR Lines</h1>
+
+<p>
+  This page shows OCR lines that the parser could not turn into transactions.
+  Use it to manually inspect and improve parsing rules over time.
+</p>
+
+<table class="table">
+  <thead>
+    <tr>
+      <th>File</th>
+      <th>Line</th>
+      <th>Reason</th>
+      <th>Amount</th>
+      <th>Raw Text</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in rows %}
+    <tr>
+      <td>{{ r.source_file }}</td>
+      <td>{{ r.line_no }}</td>
+      <td>{{ r.reason }}</td>
+      <td>{{ r.amount_text }}</td>
+      <td><pre style="white-space: pre-wrap; margin:0">{{ r.raw_text }}</pre></td>
+    </tr>
+    {% else %}
+    <tr>
+      <td colspan="5">No rejected OCR lines yet.</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
