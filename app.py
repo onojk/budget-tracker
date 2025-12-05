@@ -3,6 +3,8 @@ from pathlib import Path
 import shutil
 import subprocess
 from datetime import datetime, date
+
+START_DATE = date(2024, 1, 1)
 from collections import OrderedDict
 
 from ocr_pipeline import process_screenshot_files, process_statement_files
@@ -614,7 +616,8 @@ def dashboard():
 
     # Base query: ignore transfers where possible
     base_q = Transaction.query.filter(
-        (Transaction.is_transfer == False) | (Transaction.is_transfer.is_(None))
+        Transaction.date >= START_DATE,
+        (Transaction.is_transfer == False) | (Transaction.is_transfer.is_(None)),
     )
 
     # Recent transactions (newest first)
@@ -630,6 +633,7 @@ def dashboard():
     income_total = (
         db.session.query(func.coalesce(func.sum(Transaction.amount), 0))
         .filter(
+            Transaction.date >= START_DATE,
             (Transaction.amount > 0),
             (Transaction.is_transfer == False) | (Transaction.is_transfer.is_(None)),
         )
@@ -639,6 +643,7 @@ def dashboard():
     expense_total = (
         db.session.query(func.coalesce(func.sum(Transaction.amount), 0))
         .filter(
+            Transaction.date >= START_DATE,
             (Transaction.amount < 0),
             (Transaction.is_transfer == False) | (Transaction.is_transfer.is_(None)),
         )
