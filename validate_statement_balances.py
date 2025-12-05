@@ -241,3 +241,53 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# ---- Optional helper: summarize OCR rejections ----
+
+try:
+    from app import app, db, OcrRejected  # used when running inside the Flask app context
+except ImportError:
+    app = None
+    db = None
+    OcrRejected = None
+
+
+def summarize_ocr_rejected():
+    """
+    Print a simple summary of OcrRejected rows grouped by source_file and reason.
+    Run manually, e.g.:
+
+        python - << 'PY'
+        from app import app
+        from validate_statement_balances import summarize_ocr_rejected
+        with app.app_context():
+            summarize_ocr_rejected()
+        PY
+    """
+    if app is None or db is None or OcrRejected is None:
+        print("OcrRejected / db not available; run from within Flask app context.")
+        return
+
+    from sqlalchemy import func
+
+    with app.app_context():
+        rows = (
+            db.session.query(
+                OcrRejected.source_file,
+                OcrRejected.reason,
+                func.count(OcrRejected.id),
+            )
+            .group_by(OcrRejected.source_file, OcrRejected.reason)
+            .order_by(OcrRejected.source_file, OcrRejected.reason)
+            .all()
+        )
+
+        if not rows:
+            print("No rejected OCR lines found.")
+            return
+
+        print("Rejected OCR summary:")
+        for source_file, reason, count in rows:
+            print(f"{source_file:40s}  {reason:24s}  {count:5d}")
+

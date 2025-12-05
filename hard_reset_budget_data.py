@@ -2,102 +2,52 @@
 """
 hard_reset_budget_data.py
 
-1) Backup the SQLite database (if using sqlite:///).
-2) Wipe ALL Transaction rows.
-3) Remove OCR artifacts and temp files so you can manually re-import later.
+Deep wipe of budget data:
 
-Artifacts removed:
-  - uploads/statements/*_ocr.txt
-  - uploads/statements/*.pass*.tmp
-  - uploads/statement_uploads_for_reimport/*
-  - ocr_output/*.csv, ocr_output/*.tmp
+- Drops ALL tables and recreates them (including OcrRejected).
+- Clears imported OCR artifacts (text / screenshots / temp dirs) under uploads/.
 """
 
-import shutil
-import datetime
 from pathlib import Path
+import shutil
 
-from app import app, db, Transaction
+from app import app, db
 
+# Adjust these paths as needed based on your project layout
+ARTIFACT_DIRS = [
+    Path("uploads/statements"),
+    Path("uploads/screenshots"),
+    Path("uploads/ocr_text"),
+    Path("uploads/tmp"),
+    Path("uploads/processed"),
+]
 
-def backup_sqlite_db():
-    """If using sqlite:///, copy the DB file to a timestamped backup."""
-    uri = app.config.get("SQLALCHEMY_DATABASE_URI", "")
-    if not uri.startswith("sqlite:///"):
-        print(f"[backup] Non-sqlite URI ({uri!r}); skipping file backup.")
-        return None
+def wipe_db():
+    with app.app_context():
+        print("⚠️  Dropping ALL tables...")
+        db.drop_all()
+        print("✅ Tables dropped.")
+        print("🧱 Recreating tables...")
+        db.create_all()
+        db.session.commit()
+        print("✅ Tables recreated.")
 
-    db_path = Path(uri.replace("sqlite:///", ""))
-    if not db_path.exists():
-        print(f"[backup] SQLite file {db_path} does not exist; skipping backup.")
-        return None
-
-    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_path = db_path.with_name(f"{db_path.stem}_backup_{ts}{db_path.suffix}")
-    shutil.copy2(db_path, backup_path)
-    print(f"[backup] Database backed up to {backup_path}")
-    return backup_path
-
-
-def wipe_transactions():
-    """Delete ALL rows in the Transaction table."""
-    before = db.session.query(Transaction).count()
-    print(f"[wipe] Transaction rows BEFORE delete: {before}")
-
-    deleted = db.session.query(Transaction).delete()
-    db.session.commit()
-
-    after = db.session.query(Transaction).count()
-    print(f"[wipe] Transaction rows AFTER delete: {after} (deleted {deleted})")
-
-
-def wipe_ocr_artifacts():
-    """Remove OCR text/CSV/temp artifacts but leave original PDFs/images."""
+def wipe_artifacts():
     base = Path(__file__).parent
-
-    patterns = [
-        base / "uploads" / "statements" / "*_ocr.txt",
-        base / "uploads" / "statements" / "*.pass*.tmp",
-        base / "uploads" / "statement_uploads_for_reimport" / "*",
-        base / "ocr_output" / "*.csv",
-        base / "ocr_output" / "*.tmp",
-    ]
-
-    removed = 0
-    for pattern in patterns:
-        for p in pattern.parent.glob(pattern.name):
-            if p.is_file():
-                try:
-                    p.unlink()
-                    removed += 1
-                    print(f"[files] removed {p}")
-                except FileNotFoundError:
-                    continue
-
-    # Optionally clean up now-empty dirs (non-fatal if they are not empty)
-    for d in [
-        base / "uploads" / "statement_uploads_for_reimport",
-        base / "ocr_output",
-    ]:
-        try:
-            d.rmdir()
-            print(f"[dirs] removed empty dir {d}")
-        except OSError:
-            # Not empty or doesn't exist; ignore
-            pass
-
-    print(f"[files] Total artifact files removed: {removed}")
-
+    for rel in ARTIFACT_DIRS:
+        p = (base / rel).resolve()
+        if p.exists():
+            print(f"🗑  Removing {p} ...")
+            shutil.rmtree(p)
+        # Recreate empty directory so import UI doesn’t break
+        p.mkdir(parents=True, exist_ok=True)
+        print(f"📂 Recreated empty {p}")
 
 def main():
-    with app.app_context():
-        backup_sqlite_db()
-        wipe_transactions()
-        wipe_ocr_artifacts()
-
-        final = db.session.query(Transaction).count()
-        print(f"[final] Transaction row count after hard reset: {final}")
-
+    print("=== HARD RESET: DB + OCR ARTIFACTS ===")
+    wipe_db()
+    wipe_artifacts()
+    print("✨ Hard reset complete. Ready for a fresh import.")
 
 if __name__ == "__main__":
     main()
