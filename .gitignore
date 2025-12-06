@@ -33,28 +33,3 @@ backups_ocr_upgrade/
 os
 pd
 *.sh
-
-# Private financial data — NEVER commit these
-uploads/screenshots/
-uploads/statements/
-uploads/*.png
-uploads/*.jpg
-uploads/*.jpeg
-uploads/*.pdf
-uploads/*.csv
-
-# Database with real transactions
-budget.db
-budget.db-journal
-
-# Temp / nuclear experiment files
-*.py.bak
-nuclear_*.py
-enhanced_*.py
-temp_*.py
-IMPORT_*_LION.py
-*_screenshot_fix.py
-
-# Python cache
-__pycache__/
-*.pyc
