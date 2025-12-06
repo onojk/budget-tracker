@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Dashboard</h1>
+
+<div class="summary-cards">
+  <div class="card">
+    <h2>Total Income</h2>
+    <p>{{ income_total | default(0) }}</p>
+  </div>
+  <div class="card">
+    <h2>Total Expenses</h2>
+    <p>{{ expense_total | default(0) }}</p>
+  </div>
+  <div class="card">
+    <h2>Net</h2>
+    <p>{{ net_total | default(0) }}</p>
+  </div>
+  <div class="card">
+    <h2>Transactions</h2>
+    <p>{{ num_transactions | default(0) }}</p>
+    {% if first_date and last_date %}
+      <p>{{ first_date }} → {{ last_date }}</p>
+    {% endif %}
+  </div>
+</div>
+
+<h2>Recent transactions</h2>
+<table class="table">
+  <thead>
+    <tr>
+      <th>Date</th>
+      <th>Account</th>
+      <th>Merchant</th>
+      <th>Category</th>
+      <th class="text-right">Amount</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for tx in transactions[:50] %}
+      <tr>
+        <td>{{ tx.date }}</td>
+        <td>{{ tx.account_name }}</td>
+        <td>{{ tx.merchant }}</td>
+        <td>{{ tx.category }}</td>
+        <td class="text-right">{{ tx.amount }}</td>
+      </tr>
+    {% else %}
+      <tr>
+        <td colspan="5">No transactions yet.</td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

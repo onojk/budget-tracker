@@ -1855,23 +1855,3 @@ def scan_unclaimed_amounts(source_file, full_text):
     db.session.commit()
 # ---- end OCR rejection helpers ----
 
-
-# PREMIUM AUTO-CATEGORIZATION (added automatically)
-def _guess_category(description: str) -> str:
-    if not description: return "Uncategorized"
-    d = description.upper()
-    rules = {
-        "Groceries": ["FOOD4LESS","RALPHS","VONS","ALBERTSONS","TRADER JOE","WHOLEFDS","COSTCO","WALMART","TARGET","SPROUTS","SMART & FINAL"],
-        "Dining": ["MCDONALD","STARBUCKS","CHIPOTLE","SUBWAY","IN N OUT","TACOBELL","DOORDASH","UBEREATS","GRUBHUB"],
-        "Bills/Utilities": ["VERIZON","AT&T","T-MOBILE","SPECTRUM","COMCAST","SDGE","PG&E","SOUTHERN CALIFORNIA EDISON"],
-        "Transportation": ["UBER","LYFT","SHELL","CHEVRON","ARCO","GAS","PARKING"],
-        "Entertainment": ["NETFLIX","SPOTIFY","HULU","DISNEY+","YOUTUBE","APPLE.COM"],
-        "Shopping": ["AMAZON","AMZN","TARGET.COM","BESTBUY","HOMEDEPOT"],
-        "Health": ["CVS","WALGREENS","RITE AID","KAISER"],
-        "Income": ["PAYROLL","DIRECT DEP","DEPOSIT","REFUND"],
-        "Transfers": ["TRANSFER","ZELLE","VENMO","PAYPAL"]
-    }
-    for cat, kw in rules.items():
-        if any(k in d for k in kw):
-            return cat
-    return "Uncategorized"
