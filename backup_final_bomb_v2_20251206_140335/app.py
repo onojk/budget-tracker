@@ -497,137 +497,304 @@ def import_ocr():
         f"skipped {skipped_files} exact duplicates (based on checksum)",
         f"added {added_txs} new transactions",
     ]
+    if invalid:
+        msg_parts.append(f"ignored {invalid} unsupported file(s)")
 
-# ZEN LION FINAL VICTORY — CLEAN ROOT
-from flask import redirect
+    flash("OCR import finished: " + ", ".join(msg_parts) + ".", "success")
+    return redirect(url_for("transactions"))
 
-# ZEN LION FINAL VICTORY — PERFECT DASHBOARD
+@app.route("/import/scan", methods=["POST"])
+def import_scan():
+    """Scan imports_inbox for .txt and .pdf, convert PDFs, move them into uploads folders."""
+    base = app.root_path
+    inbox = os.path.join(base, "imports_inbox")
+    screenshots = os.path.join(base, "uploads", "screenshots")
+    statements = os.path.join(base, "uploads", "statements")
 
+    os.makedirs(inbox, exist_ok=True)
+    os.makedirs(screenshots, exist_ok=True)
+    os.makedirs(statements, exist_ok=True)
+
+    moved_txt = 0
+    converted_pdfs = 0
+
+    for p in Path(inbox).iterdir():
+        if not p.is_file():
+            continue
+
+        ext = p.suffix.lower()
+
+        if ext == ".txt":
+            p.replace(Path(screenshots) / p.name)
+            moved_txt += 1
+
+        elif ext == ".pdf":
+            out_txt = Path(statements) / f"{p.stem}_ocr.txt"
+            try:
+                subprocess.run(
+                    ["pdftotext", "-layout", str(p), str(out_txt)],
+                    check=True,
+                )
+                converted_pdfs += 1
+            except Exception as e:
+                print(f"[SCAN] Failed to convert {p}: {e}")
+            continue
+
+    flash(
+        f"Scanned inbox: moved {moved_txt} text files, converted {converted_pdfs} PDFs.",
+        "success",
+    )
+    return redirect(url_for("import_ocr"))
+
+
+@app.route("/add/manual", methods=["GET", "POST"])
+def add_manual():
+    form = ManualTransactionForm()
+    if form.validate_on_submit():
+        if form.date.data < MIN_ALLOWED_DATE:
+            flash("Date cannot be earlier than January 1, 2024.", "danger")
+            return redirect(url_for("add_manual"))
+
+        direction = form.direction.data or "debit"
+        amount = coerce_amount(form.amount.data, direction)
+
+        tx = Transaction(
+            date=form.date.data,
+            source_system=normalize_string(form.source_system.data),
+            account_name=normalize_string(form.account_name.data),
+            direction=direction,
+            amount=amount,
+            merchant=normalize_string(form.merchant.data),
+            description=normalize_string(form.description.data),
+            category=normalize_string(form.category.data),
+            notes=normalize_string(form.notes.data),
+        )
+        db.session.add(tx)
+        db.session.commit()
+        flash("Manual transaction added.", "success")
+        return redirect(url_for("transactions"))
+
+    return render_template("add_manual.html", form=form)
+
+
+
+
+
+@app.route("/capone_csv_summary")
+def capone_csv_summary():
+    capone_summary = get_capone_csv_summary()
+    rows = [
+        {
+            "ym": r.ym,
+            "account_name": r.account_name,
+            "sum_amount": float(r.sum_amount or 0),
+            "count_rows": int(r.count_rows or 0),
+        }
+        for r in capone_summary
+    ]
+    return rows
+
+
+
+@app.route("/", methods=["GET"])
+# ORPHANED DEF REMOVED: def root_index():
+    # Main entry: send / to the reports/dashboard page
+        
 @app.route("/")
-def home():
-    from flask import redirect
-    return redirect("/dashboard")
-
 
 @app.route("/dashboard")
+def dashboard():
+    """
+    Main dashboard with high-level summary and recent transactions.
+    Uses all non-transfer transactions.
+    """
+    from sqlalchemy import func
+
+    # Base query: ignore transfers where possible
+    base_q = Transaction.query.filter(
+        Transaction.date >= START_DATE,
+        (Transaction.is_transfer == False) | (Transaction.is_transfer.is_(None)),
+    )
+
+    # Recent transactions (newest first)
+    transactions = (
+        base_q.order_by(Transaction.date.desc(), Transaction.id.desc()).all()
+    )
+
+    num_transactions = len(transactions)
+    first_date = transactions[-1].date if transactions else None
+    last_date = transactions[0].date if transactions else None
+
+    # Totals across ALL non-transfer transactions
+    income_total = (
+        db.session.query(func.coalesce(func.sum(Transaction.amount), 0))
+        .filter(
+            Transaction.date >= START_DATE,
+            (Transaction.amount > 0),
+            (Transaction.is_transfer == False) | (Transaction.is_transfer.is_(None)),
+        )
+        .scalar()
+    )
+
+    expense_total = (
+        db.session.query(func.coalesce(func.sum(Transaction.amount), 0))
+        .filter(
+            Transaction.date >= START_DATE,
+            (Transaction.amount < 0),
+            (Transaction.is_transfer == False) | (Transaction.is_transfer.is_(None)),
+        )
+        .scalar()
+    )
+
+    net_total = (income_total or 0) + (expense_total or 0)
+
+    return render_template(
+        "dashboard.html",
+        transactions=transactions,
+        num_transactions=num_transactions,
+        first_date=first_date,
+        last_date=last_date,
+        income_total=income_total,
+        expense_total=expense_total,
+        net_total=net_total,
+    )
+
+@app.route("/reports")
+def reports():
+    """
+    Simple reports page stub so url_for('reports') works.
+    You can wire real monthly/category data later.
+    """
+    monthly = []
+    categories = []
+    return render_template("reports.html", monthly=monthly, categories=categories)
+
+
+
+
+from datetime import datetime
+
+
+class OcrRejected(db.Model):
+    __tablename__ = "ocr_rejected"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    # The OCR source file, e.g. "chase_1234_2025-10_ocr.txt"
+    source_file = db.Column(db.String(255), nullable=False)
+
+    # Optional: page or line number in the OCR text
+    line_no = db.Column(db.Integer)
+    page_no = db.Column(db.Integer)
+
+    # The raw line or snippet of text that we couldn't parse
+    raw_text = db.Column(db.Text, nullable=False)
+
+    # Optional: the specific amount we saw in this text (if any)
+    amount_text = db.Column(db.String(32))
+
+    # Why it was rejected (short code: "no_date", "bad_amount", "unknown_section", etc.)
+    reason = db.Column(db.String(64))
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+@app.route("/ocr/rejected")
+def ocr_rejected():
+    """
+    Simple page to browse rejected OCR lines.
+    """
+    rows = (
+        OcrRejected.query
+        .order_by(OcrRejected.source_file, OcrRejected.line_no)
+        .limit(1000)
+        .all()
+    )
+    return render_template("ocr_rejected.html", rows=rows)
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
+
+# PREMIUM FEATURES START ========================
+from datetime import date
+from dateutil.relativedelta import relativedelta
+from sqlalchemy import func, extract
+
+app.jinja_env.filters["currency"] = lambda v: f"${v:,.2f}"
+
+@app.route("/update_transaction/<int:tx_id>", methods=["POST"])
+def update_transaction(tx_id):
+    tx = Transaction.query.get_or_404(tx_id)
+    data = request.get_json()
+    for k,v in data.items():
+        if hasattr(tx,k):
+            setattr(tx, v if v else None)
+    db.session.commit()
+    return {"success":True}
+
+@app.route("/add_transaction", methods=["POST"])
+def add_transaction():
+    tx = Transaction(date=request.form["date"], amount=float(request.form["amount"]), merchant=request.form.get("merchant",""), category=request.form.get("category","Uncategorized"), notes=request.form.get("notes"))
+    db.session.add(tx); db.session.commit(); return redirect("/transactions")
+
+@app.route("/dashboard")
+def dashboard():
+    net_worth = db.session.query(func.coalesce(func.sum(Transaction.amount),0)).scalar()
+    today = date.today()
+    monthly_income = db.session.query(func.coalesce(func.sum(Transaction.amount),0)).filter(Transaction.amount>0, extract("month",Transaction.date)==today.month, extract("year",Transaction.date)==today.year).scalar()
+    monthly_spending = abs(db.session.query(func.coalesce(func.sum(Transaction.amount),0)).filter(Transaction.amount<0, extract("month",Transaction.date)==today.month, extract("year",Transaction.date)==today.year).scalar())
+    cat = db.session.query(Transaction.category, func.sum(func.abs(Transaction.amount))).filter(Transaction.amount<0).group_by(Transaction.category).all()
+    category_data = {"labels":[r[0]for r in cat],"datasets":[{"data":[float(r[1])for r in cat],"backgroundColor":["#FF6384","#36A2EB","#FFCE56","#4BC0C0","#9966FF","#FF9F40"]}]}
+    months,income,spending=[],[],[]
+    for i in range(11,-1,-1):
+        m = date(today.year,today.month,1)-relativedelta(months=i)
+        inc = db.session.query(func.coalesce(func.sum(Transaction.amount),0)).filter(extract("month",Transaction.date)==m.month, extract("year",Transaction.date)==m.year, Transaction.amount>0).scalar()
+        spn = abs(db.session.query(func.coalesce(func.sum(Transaction.amount),0)).filter(extract("month",Transaction.date)==m.month, extract("year",Transaction.date)==m.year, Transaction.amount<0).scalar())
+        months.append(m.strftime("%b %Y")); income.append(float(inc)); spending.append(float(spn))
+    trend_data = {"labels":months,"datasets":[{"label":"Income","data":income,"borderColor":"#28a745"},{"label":"Spending","data":spending,"borderColor":"#dc3545"}]}
+    return render_template("dashboard.html", net_worth=net_worth, monthly_income=monthly_income, monthly_spending=monthly_spending, category_data=category_data, trend_data=trend_data)
+# PREMIUM FEATURES END ===========================
+
+
+# PREMIUM FINAL BOMB v2 — Root redirect
+@app.route('/')
+def root_index():
+    return redirect('/dashboard')
+
+@app.route('/dashboard')
 def dashboard():
     from datetime import date
     from dateutil.relativedelta import relativedelta
     from sqlalchemy import func, extract
 
+    net_worth = db.session.query(func.coalesce(func.sum(Transaction.amount), 0)).scalar()
     today = date.today()
+    monthly_income = db.session.query(func.coalesce(func.sum(Transaction.amount),0))        .filter(Transaction.amount>0, extract('month',Transaction.date)==today.month, extract('year',Transaction.date)==today.year).scalar()
+    monthly_spending = abs(db.session.query(func.coalesce(func.sum(Transaction.amount),0))        .filter(Transaction.amount<0, extract('month',Transaction.date)==today.month, extract('year',Transaction.date)==today.year).scalar())
 
-    # Net worth = sum of all transactions
-    net_worth = db.session.query(
-        func.coalesce(func.sum(Transaction.amount), 0)
-    ).scalar() or 0
+    # Category chart
+    cat = db.session.query(Transaction.category, func.sum(func.abs(Transaction.amount)))        .filter(Transaction.amount<0).group_by(Transaction.category).all()
+    category_data = {"labels":[r[0] for r in cat],"datasets":[{"data":[float(r[1]) for r in cat],
+                     "backgroundColor":["#FF6384","#36A2EB","#FFCE56","#4BC0C0","#9966FF","#FF9F40","#C9CBCF"]}]}
 
-    # Current-month income (positive amounts)
-    monthly_income = db.session.query(
-        func.coalesce(func.sum(Transaction.amount), 0)
-    ).filter(
-        Transaction.amount > 0,
-        extract('month', Transaction.date) == today.month,
-        extract('year', Transaction.date) == today.year,
-    ).scalar() or 0
-
-    # Current-month spending (negative amounts, absolute)
-    monthly_spending = abs(
-        db.session.query(
-            func.coalesce(func.sum(Transaction.amount), 0)
-        ).filter(
-            Transaction.amount < 0,
-            extract('month', Transaction.date) == today.month,
-            extract('year', Transaction.date) == today.year,
-        ).scalar() or 0
-    )
-
-    # Category chart: spending only
-    cat = db.session.query(
-        Transaction.category,
-        func.sum(func.abs(Transaction.amount))
-    ).filter(
-        Transaction.amount < 0
-    ).group_by(
-        Transaction.category
-    ).all()
-
-    category_data = {
-        "labels": [r[0] for r in cat],
-        "datasets": [{
-            "data": [float(r[1]) for r in cat],
-            "backgroundColor": [
-                "#FF6384", "#36A2EB", "#FFCE56",
-                "#4BC0C0", "#9966FF", "#FF9F40", "#C9CBCF"
-            ],
-        }],
-    }
-
-    # 12-month trend (income vs spending)
+    # 12-month trend
     months, income, spending = [], [], []
     for i in range(11, -1, -1):
         m = date(today.year, today.month, 1) - relativedelta(months=i)
-
-        inc = db.session.query(
-            func.coalesce(func.sum(Transaction.amount), 0)
-        ).filter(
-            extract('month', Transaction.date) == m.month,
-            extract('year', Transaction.date) == m.year,
-            Transaction.amount > 0,
-        ).scalar() or 0
-
-        spn = abs(
-            db.session.query(
-                func.coalesce(func.sum(Transaction.amount), 0)
-            ).filter(
-                extract('month', Transaction.date) == m.month,
-                extract('year', Transaction.date) == m.year,
-                Transaction.amount < 0,
-            ).scalar() or 0
-        )
-
+        inc = db.session.query(func.coalesce(func.sum(Transaction.amount),0))            .filter(extract('month',Transaction.date)==m.month, extract('year',Transaction.date)==m.year, Transaction.amount>0).scalar()
+        spn = abs(db.session.query(func.coalesce(func.sum(Transaction.amount),0))            .filter(extract('month',Transaction.date)==m.month, extract('year',Transaction.date)==m.year, Transaction.amount<0).scalar())
         months.append(m.strftime("%b %Y"))
         income.append(float(inc))
         spending.append(float(spn))
+    trend_data = {"labels":months,"datasets":[
+        {"label":"Income","data":income,"borderColor":"#28a745","tension":0.3},
+        {"label":"Spending","data":spending,"borderColor":"#dc3545","tension":0.3}
+    ]}
 
-    trend_data = {
-        "labels": months,
-        "datasets": [
-            {
-                "label": "Income",
-                "data": income,
-                "borderColor": "#28a745",
-                "tension": 0.3,
-            },
-            {
-                "label": "Spending",
-                "data": spending,
-                "borderColor": "#dc3545",
-                "tension": 0.3,
-            },
-        ],
-    }
-
-    return render_template(
-        "dashboard.html",
-        net_worth=net_worth,
-        monthly_income=monthly_income,
-        monthly_spending=monthly_spending,
-        category_data=category_data,
-        trend_data=trend_data,
-    )
-if __name__ == "__main__":
-    # Dev server: change host/port as needed
-    app.run(debug=True)
-
-
-@app.route("/add_manual")
-def add_manual():
-    from flask import redirect, url_for
-    return redirect(url_for("dashboard"))
-
-
-@app.route("/reports")
-def reports():
-    from flask import redirect
-    return redirect("/dashboard")
+    return render_template("dashboard.html",
+                           net_worth=net_worth,
+                           monthly_income=monthly_income,
+                           monthly_spending=monthly_spending,
+                           category_data=category_data,
+                           trend_data=trend_data)

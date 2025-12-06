@@ -33,3 +33,7 @@ backups_ocr_upgrade/
 os
 pd
 *.sh
+
+# Local backup archives – do NOT commit
+budget_app_backup_*.tar.gz
+*.tar.gz

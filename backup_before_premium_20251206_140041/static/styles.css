@@ -133,8 +133,3 @@ body {
 .summary-table tbody tr:nth-child(even) {
   background-color: #f7f7f7;
 }
-
-body{background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);min-height:100vh;font-family:system-ui,sans-serif}
-.container{background:rgba(255,255,255,0.97);border-radius:20px;padding:2rem;margin-top:2rem;box-shadow:0 20px 50px rgba(0,0,0,.3)}
-.card{transition:.3s}.card:hover{transform:translateY(-10px)}
-.editable{cursor:pointer}.editable:hover{background:#f0f8ff !important}
