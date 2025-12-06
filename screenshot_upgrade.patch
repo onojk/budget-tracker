@@ -1,0 +1,32 @@
+--- ocr_pipeline.py (old)
++++ ocr_pipeline.py (new)
+@@ -1,5 +1,5 @@
+ # Add this at the top
+ from PIL import Image
+@@ -100,6 +100,35 @@
+ def process_screenshot_files(file_paths=None):
+     if file_paths is None:
+         file_paths = sorted(Path("uploads/screenshots").glob("*.png"))
+     else:
+         file_paths = [Path(p) for p in file_paths]
+
+     total_added = 0
+     for img_path in file_paths:
+         print(f"OCR screenshot: {img_path.name}")
+         text = pytesseract.image_to_string(Image.open(img_path), config='--psm 6')
+
+         # Use your existing multi-parser on the screenshot text
+         txns = parse_ocr_text(text)
+
+         # Detect pending and mark in notes
+         for t in txns:
+             if 'pending' in t.get('merchant', '').lower() or 'pending' in text.lower():
+                 t['notes'] = (t.get('notes', '') + ' Pending').strip()
+             t['source'] = t.get('source', 'Screenshot')
+
+         # Insert to DB
+         added = insert_transactions(txns, db.session, Transaction)
+         total_added += added
+         print(f"   +{added} transactions from screenshot")
+
+     return {"added_transactions": total_added, 'processed_files': len(file_paths)}
