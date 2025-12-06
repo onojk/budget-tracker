@@ -1,3 +1,4 @@
+from datetime import datetime
 from flask_sqlalchemy import SQLAlchemy
 
 db = SQLAlchemy()
@@ -98,3 +99,23 @@ class CategoryRule(db.Model):
 
     # For debugging/analytics
     use_count = db.Column(db.Integer, default=0)
+
+
+
+class OcrRejectedLine(db.Model):
+    __tablename__ = "ocr_rejected_lines"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    file_name = db.Column(db.String(255), nullable=False)
+    line_num = db.Column(db.Integer, nullable=True)
+
+    reason = db.Column(db.String(255), nullable=False)
+
+    amount = db.Column(db.Numeric(12, 2), nullable=True)
+    raw_text = db.Column(db.Text, nullable=False)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    def __repr__(self):
+        return f"<OcrRejectedLine {self.file_name}:{self.line_num} {self.reason}>"
