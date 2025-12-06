@@ -321,18 +321,54 @@ def _normalize_row(line: str, default_source: str, path: str):
 # -------------------------------------------------------------------
 
 
-def _parse_ocr_text_file(path, default_source: str):
-    rows = []
-    try:
-        raw = Path(path).read_text(errors="ignore")
-    except Exception:
-        return rows
+def _parse_ocr_text_file(path, default_source: str, collect_rejected: bool = False, rejected_rows=None):
+    """
+    Parse a single *_ocr.txt file using the generic line normalizer.
 
-    for line in raw.splitlines():
+    If collect_rejected is True, any line that:
+      - is non-empty AND
+      - contains at least one amount-looking token
+    but fails to normalize into a row will be recorded in rejected_rows.
+    """
+    from pathlib import Path as _LocalPath
+
+    rows = []
+    if collect_rejected and rejected_rows is None:
+        rejected_rows = []
+
+    try:
+        raw = _LocalPath(path).read_text(errors="ignore")
+    except Exception:
+        return (rows, rejected_rows) if collect_rejected else rows
+
+    for idx, line in enumerate(raw.splitlines(), start=1):
         row = _normalize_row(line, default_source, str(path))
         if row:
             rows.append(row)
-    return rows
+            continue
+
+        if not collect_rejected:
+            continue
+
+        if not line.strip():
+            continue
+
+        # Only flag lines that appear to have a dollar amount
+        if AMOUNT_RE.search(line) is None:
+            continue
+
+        rejected_rows.append(
+            {
+                "source_file": os.path.basename(str(path)),
+                "line_no": idx,
+                "page_no": None,
+                "raw_text": line.rstrip("\n"),
+                "amount_text": None,
+                "reason": "no_generic_match",
+            }
+        )
+
+    return (rows, rejected_rows) if collect_rejected else rows
 
 
 def process_screenshot_files(file_paths):
@@ -346,19 +382,33 @@ def process_screenshot_files(file_paths):
     return rows
 
 
-def process_statement_files(file_paths=None):
+def process_statement_files(file_paths=None, collect_rejected: bool = False):
     """
     Process OCR text files generated from full statements (generic parser).
 
-    NOTE: Chase/PayPal Credit have their own more-accurate parsers that run
-    in process_uploaded_statement_files; this function is just a generic pass.
+    If collect_rejected is False (default), returns:
+        rows
+
+    If collect_rejected is True, returns:
+        (rows, rejected_rows)
+    where rejected_rows is a list of dicts ready for OcrRejected.
     """
     rows = []
+    rejected_rows = []
     if not file_paths:
-        return rows
+        return (rows, rejected_rows) if collect_rejected else rows
+
     for p in file_paths:
-        rows.extend(_parse_ocr_text_file(p, "Statement OCR"))
-    return rows
+        if collect_rejected:
+            file_rows, file_rejected = _parse_ocr_text_file(
+                p, "Statement OCR", collect_rejected=True, rejected_rows=[]
+            )
+            rows.extend(file_rows)
+            rejected_rows.extend(file_rejected)
+        else:
+            rows.extend(_parse_ocr_text_file(p, "Statement OCR"))
+
+    return (rows, rejected_rows) if collect_rejected else rows
 
 # =====================================================================
 # Capital One (card ending 0728) statement parser (from *_ocr.txt)
@@ -1270,9 +1320,10 @@ def process_uploaded_statement_files(
     # ----------------------------------------------------------
     # 2) Generic parser (very loose, mostly for simple layouts)
     # ----------------------------------------------------------
+    generic_rejected = []
     if txt_paths:
         try:
-            process_statement_files(txt_paths)
+            _, generic_rejected = process_statement_files(txt_paths, collect_rejected=True)
         except TypeError:
             # Older signature that did its own discovery
             process_statement_files()
@@ -1428,6 +1479,19 @@ def process_uploaded_statement_files(
     }
 
     if db_session is not None and Transaction is not None:
+        # First, store any rejected generic OCR lines collected earlier.
+        if 'generic_rejected' in locals() and generic_rejected:
+            for r in generic_rejected:
+                record_rejected_line(
+                    source_file=r["source_file"],
+                    line_no=r["line_no"],
+                    raw_text=r["raw_text"],
+                    reason=r["reason"],
+                    amount_text=r.get("amount_text"),
+                    page_no=r.get("page_no"),
+                )
+            db_session.commit()
+
         try:
             coverage = compute_ocr_coverage(
                 Path(statements_dir), db_session, Transaction
