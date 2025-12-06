@@ -1,0 +1,56 @@
+*** FINAL SCREENSHOT PARSER THAT WORKS ON YOUR CHASE BROWSER SCREENSHOTS ***
+*** Drop this into ocr_pipeline.py (replace the old process_screenshot_files) ***
+
+def process_screenshot_files(file_paths=None):
+    if file_paths is None:
+        file_paths = sorted(Path("uploads/screenshots").glob("*.png"))
+    else:
+        file_paths = [Path(p) for p in file_paths]
+
+    total_added = 0
+    for img_path in file_paths:
+        print(f"OCR → {img_path.name}")
+        text = pytesseract.image_to_string(Image.open(img_path))
+        
+        # Ultra-lenient Chase screenshot parser
+        txns = []
+        for line in text.split('\n'):
+            line = line.strip()
+            # Look for date (MM/DD) + description + amount
+            m = re.search(r'(\d{1,2}/\d{1,2})\s+(.+?)\s+(-?\$?[\d,]+\.\d{2})$', line)
+            if not m:
+                m = re.search(r'(\d{1,2}/\d{1,2})\s+(.+?)\s+(-?[\d,]+\.\d{2})$', line)
+            if m:
+                date_str, merchant, amt_str = m.groups()
+                try:
+                    amount = -float(amt_str.replace('$','').replace(',',''))
+                    txns.append({
+                        "date_str": date_str,
+                        "merchant": merchant.strip(),
+                        "amount": amount,
+                        "source": "Chase (screenshot)"
+                    })
+                except:
+                    continue
+        
+        # Insert into DB
+        added = 0
+        for t in txns:
+            try:
+                month, day = map(int, t["date_str"].split('/'))
+                year = datetime.now().year
+                if month == 12 and datetime.now().month == 1:
+                    year -= 1
+                tx_date = datetime(year, month, day).date()
+                tx = Transaction(date=tx_date, amount=t["amount"], merchant=t["merchant"],
+                                 source=t["source"], category="Uncategorized")
+                db.session.add(tx)
+                added += 1
+            except:
+                continue
+        if added:
+            db.session.commit()
+            print(f"   +{added} transactions from {img_path.name}")
+            total_added += added
+
+    return {"added_transactions": total_added, "processed_files": len(file_paths)}
