@@ -904,34 +904,40 @@ def compute_checksum(path: Path) -> str:
 
 
 def ocr_to_text(input_path: Path, out_txt: Path) -> None:
-    """Convert PDF/PNG/JPG to a text file using pdftotext or Tesseract.
-
-    - For .pdf: use `pdftotext -layout`
-    - For images: run `tesseract`.
     """
+    Convert PDF/PNG/JPG into a text file using either pdftotext (for PDFs)
+    or Tesseract (for image screenshots).
+
+    - For .pdf:       pdftotext -layout file.pdf file.txt
+    - For images:     tesseract file.png file   → produces file.txt
+
+    The resulting text is written to out_txt exactly.
+    """
+    import subprocess
+
     ext = input_path.suffix.lower()
     out_txt.parent.mkdir(parents=True, exist_ok=True)
 
     if ext == ".pdf":
-        import subprocess
         subprocess.run(
             ["pdftotext", "-layout", str(input_path), str(out_txt)],
             check=True,
         )
+
     elif ext in {".png", ".jpg", ".jpeg"}:
-        import subprocess
-        # tesseract input output(without .txt)
+        # Tesseract takes output *without* extension
         tmp_no_ext = out_txt.with_suffix("")
         subprocess.run(
             ["tesseract", str(input_path), str(tmp_no_ext)],
             check=True,
         )
+        # Tesseract produces tmp_no_ext.txt — rename to the final required out_txt
         gen_txt = tmp_no_ext.with_suffix(".txt")
         if gen_txt != out_txt:
             gen_txt.replace(out_txt)
+
     else:
         raise ValueError(f"Unsupported file type for OCR: {input_path}")
-
 
 def ocr_to_text_with_consistency(src_path: Path, out_txt: Path, passes: int = 3) -> None:
     """
@@ -1335,251 +1341,129 @@ def _parse_paypal_credit_detail(path: Path):
 # High-level pipeline used by /import/ocr
 # ======================================================================
 
+# =====================================================================
+# Frontend helper: handle uploads on /import/ocr
+# =====================================================================
 
-def process_uploaded_statement_files(
-    uploads_dir: Path,
-    statements_dir: Path,
-    db_session=None,
-    Transaction=None,
-    is_duplicate_transaction=None,
-):
-    """High-level pipeline used by /import/ocr.
+from pathlib import Path
+from ocr_import_helpers import import_ocr_rows
 
-    Steps:
-    - For each uploaded file in uploads_dir with extension pdf/png/jpg/jpeg:
-      * compute checksum
-      * if a file with that checksum already exists in statements_dir, skip it
-      * otherwise OCR → *_ocr.txt in statements_dir
-    - Then parse all *_ocr.txt files via existing statement-parse logic
-      (generic parser + Chase + Capital One + PayPal Credit).
 
-    Returns a dict with stats for UI flash messages.
+def process_uploaded_statement_files(uploads_dir, statements_dir):
+    """
+    1) Take whatever files are sitting in `uploads_dir` (PNGs, JPGs, PDFs,
+       raw *_ocr.txt).
+    2) For non-txt, run OCR and write *_ocr.txt into `statements_dir`.
+    3) For each *_ocr.txt:
+         - Try Chase dashboard screenshot parser
+         - Then run the generic statement parser as a fallback
+    4) Feed all normalized rows into import_ocr_rows().
+    5) Return a stats dict for the Import Report page.
     """
 
+    uploads_dir = Path(uploads_dir)
+    statements_dir = Path(statements_dir)
     uploads_dir.mkdir(parents=True, exist_ok=True)
     statements_dir.mkdir(parents=True, exist_ok=True)
 
-    allowed_exts = {".pdf", ".png", ".jpg", ".jpeg"}
-
-    # Build checksum index for already-processed text files
-    existing_checksums = {}
-    for txt in statements_dir.glob("*_ocr.txt"):
-        try:
-            existing_checksums[compute_checksum(txt)] = txt.name
-        except Exception:
-            continue
-
-    saved_files = 0
-    skipped_files = 0
-
-    # ----------------------------------------------------------
-    # 1) OCR new uploaded files → *_ocr.txt
-    # ----------------------------------------------------------
-    for f in uploads_dir.iterdir():
-        if not f.is_file():
-            continue
-        if f.suffix.lower() not in allowed_exts:
-            continue
-
-        ch = compute_checksum(f)
-        if ch in existing_checksums:
-            skipped_files += 1
-            continue
-
-        out_txt = statements_dir / f"{f.stem}_ocr.txt"
-        try:
-            ocr_to_text_with_consistency(f, out_txt, passes=3)
-            saved_files += 1
-            existing_checksums[ch] = out_txt.name
-        except Exception as e:
-            print(f"[OCR] Failed to OCR {f}: {e}")
-
-    txt_paths = sorted(statements_dir.glob("*_ocr.txt"))
-    added_count = 0
-
-    # ----------------------------------------------------------
-    # 2) Generic parser (very loose, mostly for simple layouts)
-    # ----------------------------------------------------------
-    generic_rejected = []
-    if txt_paths:
-        try:
-            _, generic_rejected = process_statement_files(txt_paths, collect_rejected=True)
-        except TypeError:
-            # Older signature that did its own discovery
-            process_statement_files()
-
-    # ----------------------------------------------------------
-    # 3) Chase statement extra pass (TRANSACTION DETAIL blocks)
-    # ----------------------------------------------------------
-    if txt_paths and db_session is not None and Transaction is not None:
-        for path in txt_paths:
-            extra_rows = _parse_chase_transaction_detail(path)
-            for row in extra_rows:
-                try:
-                    tx_date = _date_cls.fromisoformat(row["Date"])
-                except Exception:
-                    tx_date = None
-
-                amount = Decimal(str(row["Amount"]))
-                merchant = row["Merchant"]
-                notes = row["Notes"]
-
-                existing = (
-                    db_session.query(Transaction)
-                    .filter_by(
-                        date=tx_date,
-                        amount=amount,
-                        merchant=merchant,
-                        notes=notes,
-                    )
-                    .first()
-                )
-                if existing:
-                    continue
-
-                tx = Transaction(
-                    date=tx_date,
-                    amount=amount,
-                    direction=row["Direction"],
-                    source_system=row["Source"],
-                    account_name=row["Account"],
-                    merchant=merchant,
-                    description=row["Description"],
-                    category=row["Category"],
-                    notes=notes,
-                )
-                db_session.add(tx)
-                added_count += 1
-
-        db_session.commit()
-
-    # ----------------------------------------------------------
-    # 4) Capital One 0728 statements extra pass
-    # ----------------------------------------------------------
-    if txt_paths and db_session is not None and Transaction is not None:
-        for path in txt_paths:
-            cap_rows = _parse_capone_0728_statement(path)
-            if not cap_rows:
-                continue
-
-            for row in cap_rows:
-                try:
-                    tx_date = _date_cls.fromisoformat(row["Date"])
-                except Exception:
-                    tx_date = None
-
-                amount = Decimal(str(row["Amount"]))
-                merchant = row["Merchant"]
-                notes = row["Notes"]
-
-                existing = (
-                    db_session.query(Transaction)
-                    .filter_by(
-                        date=tx_date,
-                        amount=amount,
-                        merchant=merchant,
-                        notes=notes,
-                    )
-                    .first()
-                )
-                if existing:
-                    continue
-
-                tx = Transaction(
-                    date=tx_date,
-                    amount=amount,
-                    direction=row["Direction"],
-                    source_system=row["Source"],
-                    account_name=row["Account"],
-                    merchant=merchant,
-                    description=row["Description"],
-                    category=row["Category"],
-                    notes=notes,
-                )
-                db_session.add(tx)
-                added_count += 1
-
-        db_session.commit()
-
-    # ----------------------------------------------------------
-    # 5) PayPal Credit / PayPal Cashback Synchrony extra pass
-    # ----------------------------------------------------------
-    if txt_paths and db_session is not None and Transaction is not None:
-        for path in txt_paths:
-            paypal_rows = _parse_paypal_credit_detail(path)
-            if not paypal_rows:
-                continue
-
-            for row in paypal_rows:
-                try:
-                    tx_date = _date_cls.fromisoformat(row["Date"])
-                except Exception:
-                    tx_date = None
-
-                amount = Decimal(str(row["Amount"]))
-                merchant = row["Merchant"]
-                notes = row["Notes"]
-
-                existing = (
-                    db_session.query(Transaction)
-                    .filter_by(
-                        date=tx_date,
-                        amount=amount,
-                        merchant=merchant,
-                        notes=notes,
-                    )
-                    .first()
-                )
-                if existing:
-                    continue
-
-                tx = Transaction(
-                    date=tx_date,
-                    amount=amount,
-                    direction=row["Direction"],
-                    source_system=row["Source"],
-                    account_name=row["Account"],
-                    merchant=merchant,
-                    description=row["Description"],
-                    category=row["Category"],
-                    notes=notes,
-                )
-                db_session.add(tx)
-                added_count += 1
-
-        db_session.commit()
-
-    # ----------------------------------------------------------
-    # 6) Coverage stats (for banners/reports)
-    # ----------------------------------------------------------
     stats = {
-        "saved_files": saved_files,
-        "skipped_duplicates": skipped_files,
-        "added_transactions": added_count,
+        "saved_files": 0,
+        "skipped_duplicates": 0,
+        "added_transactions": 0,
+        "candidate_lines": 0,
+        "statement_rows": 0,
     }
 
-    if db_session is not None and Transaction is not None:
-        # First, store any rejected generic OCR lines collected earlier.
-        if 'generic_rejected' in locals() and generic_rejected:
-            for r in generic_rejected:
-                record_rejected_line(
-                    source_file=r["source_file"],
-                    line_no=r["line_no"],
-                    raw_text=r["raw_text"],
-                    reason=r["reason"],
-                    amount_text=r.get("amount_text"),
-                    page_no=r.get("page_no"),
-                )
-            db_session.commit()
+    # --------------------------------------------------
+    # 1) Normalize uploads -> *_ocr.txt in statements_dir
+    # --------------------------------------------------
+    txt_paths = []
 
+    for src in sorted(uploads_dir.iterdir()):
+        if not src.is_file():
+            continue
+
+        ext = src.suffix.lower()
+
+        # Already a text file (e.g. *_ocr.txt from command line)
+        if ext == ".txt":
+            dst = statements_dir / src.name
+            try:
+                dst.write_text(src.read_text(errors="ignore"))
+                txt_paths.append(dst)
+                stats["saved_files"] += 1
+            except Exception as e:
+                print(f"[OCR] Failed to copy txt {src}: {e}")
+            continue
+
+        # PDF / PNG / JPG / JPEG -> run OCR
+        if ext in {".pdf", ".png", ".jpg", ".jpeg"}:
+            dst = statements_dir / f"{src.stem}_ocr.txt"
+            try:
+                # use the simplified wrapper we added earlier
+                ocr_to_text_with_consistency(src, dst, passes=1)
+                txt_paths.append(dst)
+                stats["saved_files"] += 1
+            except Exception as e:
+                print(f"[OCR] Error OCR'ing {src}: {e}")
+            continue
+
+        # Ignore unknown extensions
+        print(f"[OCR] Skipping unsupported file type: {src}")
+
+    # --------------------------------------------------
+    # 2) Parse *_ocr.txt -> normalized row dicts
+    # --------------------------------------------------
+    all_rows = []
+
+    for txt in txt_paths:
+        # a) Chase dashboard screenshot parser (your custom function)
         try:
-            coverage = compute_ocr_coverage(
-                Path(statements_dir), db_session, Transaction
+            chase_rows = parse_chase_dashboard_ocr_text(txt)
+        except Exception as e:
+            print(f"[OCR] Chase dashboard parse failed for {txt}: {e}")
+            chase_rows = []
+
+        # Normalize Chase rows into the schema expected by import_ocr_rows
+        normalized_chase = []
+        for r in chase_rows:
+            normalized_chase.append(
+                {
+                    "Date": r.get("date") or r.get("Date"),
+                    "Amount": r.get("amount") or r.get("Amount"),
+                    "Merchant": r.get("merchant") or r.get("Merchant"),
+                    "Source": r.get("source_system") or r.get("Source") or "Chase Screenshot",
+                    "Account": r.get("account_name") or r.get("Account") or "",
+                    # Let import_ocr_rows default Direction/Category if missing
+                    "Description": r.get("merchant") or r.get("Merchant") or "",
+                    "Category": r.get("Category") or "",
+                    "Notes": r.get("raw_line") or r.get("Notes") or f"from {txt.name}",
+                }
             )
-            stats.update(coverage)
-        except Exception:
-            # Never let coverage stats break the import
-            pass
+
+        # b) Generic OCR text parser as fallback
+        generic_rows = process_statement_files(file_paths=[str(txt)])
+        # process_statement_files() might return (rows, rejected)
+        if isinstance(generic_rows, tuple):
+            generic_rows = generic_rows[0]
+
+        all_rows.extend(normalized_chase)
+        all_rows.extend(generic_rows)
+
+    stats["candidate_lines"] = len(all_rows)
+    stats["statement_rows"] = len(all_rows)
+
+    # --------------------------------------------------
+    # 3) Import into DB via import_ocr_rows
+    # --------------------------------------------------
+    if all_rows:
+        inserted, skipped = import_ocr_rows(
+            all_rows,
+            default_source="Screenshot OCR",
+            default_account="",
+        )
+        stats["added_transactions"] = inserted
+        stats["skipped_duplicates"] = skipped
 
     return stats
 
@@ -2013,5 +1897,177 @@ def safe_unlink(path):
     except FileNotFoundError:
         pass
 # ======================================================================
+# ---------------------------------------------------------------------
+# Simplified override: OCR helper without .pass0.tmp logic
+# ---------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------
+# Simplified override: OCR helper without .pass0.tmp logic
+# ---------------------------------------------------------------------
+from pathlib import Path
+
+def ocr_to_text_with_consistency(src_path: Path, out_txt: Path, passes: int = 1) -> None:
+    """Simplified OCR wrapper.
+
+    We ignore multi-pass logic entirely because the old implementation
+    expected *_ocr.pass0.tmp files that no longer exist.
+
+    Instead: just run `ocr_to_text()` once to generate the final *_ocr.txt.
+    """
+    ocr_to_text(src_path, out_txt)
+# ---------------------------------------------------------------------
+# Simplified override: record_rejected_line
+# ---------------------------------------------------------------------
+def record_rejected_line(*args, **kwargs):
+    """No-op placeholder for rejected OCR lines.
+
+    The older implementation tried to create an OcrRejectedLine model with
+    keyword arguments (like `source_file`) that no longer match the model
+    definition, causing TypeError.
+
+    For now we disable DB persistence of rejected lines so OCR imports
+    can proceed without error. You can later reintroduce a full implementation
+    that matches your actual OcrRejectedLine schema.
+    """
+    # Optional: lightweight debug print, comment out if noisy
+    # print("[OCR] Rejected line (ignored):", args, kwargs)
+    return
+
+# =====================================================================
+# Chase dashboard screenshot parser (handles multi-line blocks)
+# =====================================================================
+from datetime import datetime
+import re
+from pathlib import Path
+
+# Month name at start of line, like "Dec 03,2025 ..." or "Dec 3, 2025 ..."
+_DATE_RE = re.compile(
+    r'^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2}),\s*(\d{4})(.*)$'
+)
+
+# Rough filter for "this line looks like a transaction row, not a header"
+_TXN_KEYWORDS_RE = re.compile(
+    r'\b(Card|ACH|Account transfer|POS|DEBIT|CREDIT|PAYMENT|PAYROLL|TRANSFER)\b',
+    re.IGNORECASE,
+)
+
+_AMOUNT_RE = re.compile(r'(-?\$[\d,]+\.\d{2})')
+
+
+def _parse_amount_with_sign(rest: str, amount_raw: str) -> float:
+    """
+    Take a matched dollar string like "-$90.58" or "$73.97" and return a signed float.
+
+    Default rule:
+      - If there's an explicit '-' -> negative
+      - Otherwise, default to negative (spend) UNLESS the line looks like income
+        (credit / payroll / deposit / refund).
+    """
+    s = amount_raw.replace("$", "").replace(",", "")
+    try:
+        value = float(s)
+    except ValueError:
+        return 0.0
+
+    # Explicit minus keeps it negative
+    if amount_raw.strip().startswith("-"):
+        return value
+
+    # Decide sign from context
+    if re.search(r"\b(credit|deposit|payroll|refund)\b", rest, re.IGNORECASE):
+        return abs(value)  # income
+    else:
+        return -abs(value)  # spending
+
+
+def parse_chase_dashboard_ocr_text(txt_path: Path):
+    """
+    Parse OCR text from Chase web/mobile dashboard screenshots.
+
+    Strategy:
+      - Track the last date we saw (from lines like 'Dec 03,2025 ...').
+      - Any line with:
+          * at least one '$amount'
+          * AND a 'transactiony' keyword (Card, ACH, Account transfer, Payment, etc.)
+        becomes its own transaction, using the current date.
+      - This picks up:
+          * lines starting with dates
+          * continuation lines under the same date
+          * pending transactions
+    """
+    rows = []
+    last_date_iso: str | None = None
+
+    with open(txt_path, "r", errors="ignore") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line:
+                continue
+
+            # See if this line sets/updates the current date
+            m = _DATE_RE.match(line)
+            if m:
+                mon_abbr, day, year, rest = m.groups()
+                try:
+                    dt = datetime.strptime(
+                        f"{mon_abbr} {int(day)} {int(year)}", "%b %d %Y"
+                    )
+                    last_date_iso = dt.strftime("%Y-%m-%d")
+                except ValueError:
+                    last_date_iso = None
+                    rest = rest or ""
+                else:
+                    rest = (rest or "").strip()
+            else:
+                rest = line
+
+            # We need a date context to attach this to
+            if not last_date_iso:
+                continue
+
+            # Must contain a $amount
+            m_amt = _AMOUNT_RE.search(rest)
+            if not m_amt:
+                continue
+
+            # Avoid top-of-page summary stuff like "Available balance $1,254.69"
+            if not _TXN_KEYWORDS_RE.search(rest):
+                continue
+
+            amount_raw = m_amt.group(1)
+            amount = _parse_amount_with_sign(rest, amount_raw)
+
+            row = {
+                "date": last_date_iso,
+                "merchant": rest,
+                "amount": amount,
+                "account_name": "Chase Checking (screenshot)",
+                "source_system": "ChaseScreenshot",
+                "raw_line": line,
+            }
+            rows.append(row)
+
+    return rows
+
+# =====================================================================
+# FINAL OVERRIDE: Screenshot OCR entrypoint
+# =====================================================================
+from pathlib import Path as _PathForScreenshot
+
+def process_screenshot_files(file_paths):
+    """
+    Override screenshot processing to use the Chase dashboard parser.
+
+    The import pipeline calls this for PNG/JPG OCR text files; we simply
+    delegate to parse_chase_dashboard_ocr_text() for each path and
+    concatenate the results.
+    """
+    all_rows = []
+    for p in file_paths:
+        p_obj = _PathForScreenshot(p)
+        rows = parse_chase_dashboard_ocr_text(p_obj)
+        print(f"[DEBUG] parse_chase_dashboard_ocr_text({p_obj}) -> {len(rows)} rows")
+        if rows:
+            all_rows.extend(rows)
+    return all_rows

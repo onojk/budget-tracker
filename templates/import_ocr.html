@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-
 {% block content %}
+
 <h2>Import via OCR</h2>
 
 <p>
@@ -8,21 +8,24 @@
   We'll run OCR on them and import any recognized transactions into your ledger.
 </p>
 
-<form action="{{ url_for('import_ocr') }}" method="post" enctype="multipart/form-data" class="card">
-  <div class="card-body">
-    <div class="form-group">
-      <label for="screenshot_files"><strong>PDF / Image files</strong></label><br>
-      <input type="file" id="ocr_files" name="ocr_files" multiple accept=".png,.jpg,.jpeg,.pdf,.txt,.PNG,.JPG,.JPEG,.PDF,.TXT">
-      <p class="help-text">
-        Allowed types: <code>.pdf</code>, <code>.png</code>, <code>.jpg</code>, <code>.jpeg</code>.<br>
-        For CSV exports (e.g. <code>spending_45days.csv</code>), use the
-         page instead.
-      </p>
-    </div>
-
-    <button type="submit" class="btn btn-primary">
-      Upload &amp; Run OCR
-    </button>
+<form method="post" enctype="multipart/form-data">
+  <div>
+    <label for="screenshot_files"><strong>PDF / Image files</strong></label><br>
+    <input
+      id="screenshot_files"
+      name="screenshot_files"
+      type="file"
+      multiple
+      accept=".pdf,.png,.jpg,.jpeg"
+    >
   </div>
+
+  <p style="margin-top: 1em;">
+    Allowed types: <code>.pdf</code>, <code>.png</code>, <code>.jpg</code>, <code>.jpeg</code>.<br>
+    For CSV exports (e.g. <code>spending_45days.csv</code>), use the CSV import page instead.
+  </p>
+
+  <button type="submit">Upload &amp; Run OCR</button>
 </form>
+
 {% endblock %}
