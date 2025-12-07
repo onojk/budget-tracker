@@ -311,6 +311,43 @@ def transactions():
     )
     return render_template("transactions.html", transactions=txs)
 
+@app.route("/transactions/<int:txn_id>/update", methods=["POST"])
+def update_transaction(txn_id):
+    # Update a single transaction row from the Transactions page.
+    txn = Transaction.query.get_or_404(txn_id)
+
+    # Date (YYYY-MM-DD)
+    date_str = (request.form.get("date") or "").strip()
+    if date_str:
+        try:
+            txn.date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        except ValueError:
+            # Leave old date if parsing fails
+            pass
+
+    # Merchant & description
+    txn.merchant = (request.form.get("merchant") or "").strip()
+    txn.description = (request.form.get("description") or "").strip()
+
+    # Amount (signed float)
+    amount_str = (request.form.get("amount") or "").strip()
+    if amount_str:
+        try:
+            txn.amount = float(amount_str)
+        except ValueError:
+            # Keep existing amount if invalid
+            pass
+
+    # Category & notes
+    category = (request.form.get("category") or "").strip()
+    notes = (request.form.get("notes") or "").strip()
+    txn.category = category or None
+    txn.notes = notes or None
+
+    db.session.commit()
+    return redirect(url_for("transactions"))
+
+
 
 @app.route("/import/csv", methods=["GET", "POST"])
 def import_csv():
@@ -631,3 +668,48 @@ def add_manual():
 def reports():
     from flask import redirect
     return redirect("/dashboard")
+
+
+@app.route("/api/transactions/<int:txn_id>", methods=["PUT"])
+def update_transaction_json(txn_id):
+    txn = Transaction.query.get_or_404(txn_id)
+    data = request.get_json(force=True) or {}
+
+    # Date: expect 'YYYY-MM-DD'
+    if "date" in data and data["date"]:
+        from datetime import datetime as _dt
+        try:
+            txn.date = _dt.strptime(data["date"], "%Y-%m-%d").date()
+        except ValueError:
+            pass
+
+    if "merchant" in data:
+        txn.merchant = (data["merchant"] or "").strip()
+
+    if "amount" in data:
+        try:
+            txn.amount = float(data["amount"])
+        except (TypeError, ValueError):
+            pass
+
+    if "category" in data:
+        cat = (data["category"] or "").strip()
+        txn.category = cat or None
+
+    if "notes" in data:
+        notes = (data["notes"] or "").strip()
+        txn.notes = notes or None
+
+    db.session.commit()
+
+    return {
+        "status": "ok",
+        "transaction": {
+            "id": txn.id,
+            "date": txn.date.isoformat() if txn.date else None,
+            "merchant": txn.merchant,
+            "amount": float(txn.amount) if txn.amount is not None else None,
+            "category": txn.category,
+            "notes": txn.notes or "",
+        },
+    }
