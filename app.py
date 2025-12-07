@@ -259,11 +259,14 @@ def build_monthly_summary(txs):
         )
 
         amt = float(tx.amount or 0)
+
+        # income vs spending
         if amt >= 0:
             bucket["income"] += amt
         else:
             bucket["spending"] += amt
 
+        # always update monthly net
         bucket["net"] += amt
 
     return list(monthly_map.values())
@@ -463,22 +466,8 @@ def scan_inbox_core():
 
     return moved_txt, converted_pdfs
 
-
-
-
-
 @app.route("/import/ocr", methods=["GET", "POST"])
 def import_ocr():
-    """
-    Web import for statements / screenshots.
-
-    Flow:
-      - User uploads screenshots (PNG/JPG/PDF) or *_ocr.txt.
-      - We clear the uploads + statements dirs so we ONLY process this batch.
-      - We save the selected files into `uploads/`.
-      - ocr_pipeline.process_uploaded_statement_files(uploads_dir, statements_dir)
-        runs OCR as needed and parses into the DB.
-    """
     from pathlib import Path
     from flask import request, flash, redirect, url_for, render_template
 
@@ -491,14 +480,15 @@ def import_ocr():
     statements_dir.mkdir(parents=True, exist_ok=True)
 
     if request.method == "POST":
-        # Accept multiple possible field names, old and new
+        # Accept multiple possible field names (support old & new UI)
         uploaded_files = (
-            request.files.getlist("ocr_files")
+            request.files.getlist("screenshot_files")
+            or request.files.getlist("ocr_files")
             or request.files.getlist("statement_files")
             or request.files.getlist("files")
         )
 
-        # 1) Clear OLD uploads so we only handle what was just selected
+        # 1) Clear OLD uploads so we only handle the current batch
         for p in uploads_dir.iterdir():
             try:
                 if p.is_file():
@@ -506,7 +496,7 @@ def import_ocr():
             except OSError:
                 pass
 
-        # 2) Optionally clear old *_ocr.txt so we only import this batch
+        # 2) Clear old *_ocr.txt so only new OCR results are processed
         for p in statements_dir.glob("*.txt"):
             try:
                 p.unlink()
@@ -515,7 +505,7 @@ def import_ocr():
 
         saved_any = False
         for f in uploaded_files:
-            if not f or not f.filename:
+            if not f or not f.filename.strip():
                 continue
             dest = uploads_dir / f.filename
             f.save(dest)
@@ -525,12 +515,15 @@ def import_ocr():
             flash("No files were selected for import.", "warning")
             return redirect(url_for("import_ocr"))
 
-        # ✅ Use your existing PNG/PDF → OCR → *_ocr.txt → DB pipeline
+        # Use the existing OCR → parse → DB import pipeline
+        from ocr_pipeline import process_uploaded_statement_files
+        from models import Transaction  # if already imported at top, you can remove this line
+
         stats = process_uploaded_statement_files(uploads_dir, statements_dir)
 
         return render_template("import_report.html", stats=stats, report=stats)
 
-    # GET: show upload form
+    # GET: render the upload form
     return render_template("import_ocr.html")
 
 @app.route("/")
