@@ -33,8 +33,7 @@
     <a href="/transactions"
        class="{% if request.endpoint == 'add_manual' %}active{% endif %}">Add Manual</a>
     <a href="/dashboard"
-       class="{% if request.endpoint == 'reports' %}active{% endif %}">Reports</a> <a href="{{ url_for('ocr_rejected') }}"
-       class="{% if request.endpoint == 'ocr_rejected' %}active{% endif %}">OCR Rejected</a>
+       class="{% if request.endpoint == 'reports' %}active{% endif %}">Reports</a>
   </div>
       
       <li class="nav-item">
