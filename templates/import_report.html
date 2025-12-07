@@ -1,51 +1,45 @@
 {% extends "base.html" %}
-
-{% block title %}Import OCR Report{% endblock %}
+{% block title %}Import Report{% endblock %}
 
 {% block content %}
-<h1>Import OCR Report</h1>
+<h1>OCR Import Report</h1>
 
-<p>
-  This report compares the <strong>candidate transaction lines</strong> in each
-  <code>*_ocr.txt</code> statement file with the <strong>rows in the database</strong>
-  where <code>notes == "from &lt;filename&gt;"</code>.
-</p>
+<p>This is the raw stats object returned by <code>process_uploaded_statement_files</code>:</p>
 
-<div class="import-report-summary">
-  <div class="summary-item">
-    <span class="summary-label">Total candidate OCR lines</span>
-    <span class="summary-value">{{ report.totals.candidate_lines }}</span>
-  </div>
-  <div class="summary-item">
-    <span class="summary-label">Total DB rows from statement files</span>
-    <span class="summary-value">{{ report.totals.db_rows }}</span>
-  </div>
-  <div class="summary-item">
-    <span class="summary-label">Difference (candidates - DB rows)</span>
-    <span class="summary-value">
-      {{ report.totals.candidate_lines - report.totals.db_rows }}
-    </span>
-  </div>
-</div>
+<pre>{{ stats }}</pre>
 
-<table class="import-report-table">
-  <thead>
-    <tr>
-      <th>Statement file</th>
-      <th class="num">Candidate OCR lines</th>
-      <th class="num">DB rows (notes = "from filename")</th>
-      <th class="num">Diff</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for row in report.files %}
-    <tr>
-      <td>{{ row.filename }}</td>
-      <td class="num">{{ row.candidate_lines }}</td>
-      <td class="num">{{ row.db_rows }}</td>
-      <td class="num">{{ row.candidate_lines - row.db_rows }}</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+{% if stats is mapping %}
+  <h2>Summary</h2>
+  <ul>
+  {% for key, value in stats.items() %}
+    {% if key != "per_file" %}
+      <li><strong>{{ key }}:</strong> {{ value }}</li>
+    {% endif %}
+  {% endfor %}
+  </ul>
+
+  {% if stats.per_file is defined %}
+    <h2>Per-file details</h2>
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Filename</th>
+          <th>Rows</th>
+          <th>Rejected</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for f in stats.per_file %}
+          <tr>
+            <td>{{ f.filename }}</td>
+            <td>{{ f.rows }}</td>
+            <td>{{ f.rejected }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+{% endif %}
+
+<p><a href="{{ url_for('import_ocr') }}">Back to OCR import</a></p>
 {% endblock %}
