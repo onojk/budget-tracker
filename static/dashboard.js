@@ -56,8 +56,7 @@ async function loadSummary() {
     if (catCanvas && window.Chart && data.by_category) {
       const catCtx = catCanvas.getContext("2d");
       const catLabels = data.by_category.map((x) => x.category);
-      // spending is negative; use positive for chart
-      const catValues = data.by_category.map((x) => -Number(x.amount || 0));
+      const catValues = data.by_category.map((x) => -Number(x.amount || 0)); // spending negative
 
       new Chart(catCtx, {
         type: "doughnut",
@@ -218,38 +217,28 @@ async function loadTransactions() {
 }
 
 // -------------------------
-// Save a field (PUT, then POST fallback)
+// Save using the NEW endpoint
 // -------------------------
 async function saveTransactionField(id, payload) {
-  const url = `/api/transactions/${id}`;
+  const url = `/api/transactions/${id}`;  // <-- IMPORTANT
   console.log("Saving", id, payload);
 
-  // 1) Try PUT
   try {
-    const resPut = await fetchJSON(url, {
-      method: "PUT",
+    const res = await fetch(url, {
+      method: "PUT",                   // backend supports PUT and POST
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    console.log("Saved via PUT:", resPut);
-    return;
-  } catch (e) {
-    console.warn("PUT save failed, will try POST:", e);
-  }
 
-  // 2) Fallback: POST
-  try {
-    const resPost = await fetchJSON(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    console.log("Saved via POST:", resPost);
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+
+    const data = await res.json();
+    console.log("Saved transaction:", data);
   } catch (e) {
-    console.error("Save failed via PUT and POST", e);
-    alert(
-      "Save failed — open DevTools (F12), check Console + Network for /api/transactions/<id>."
-    );
+    console.error("Failed to save", e);
+    alert("Save failed — open DevTools (F12) and check Console + Network.");
   }
 }
 
