@@ -1,48 +1,41 @@
 import os
-from pathlib import Path
 import shutil
 import subprocess
-from datetime import datetime, date
-
-START_DATE = date(2024, 1, 1)
+from pathlib import Path
+from datetime import datetime, date, timedelta
 from collections import OrderedDict
 
-from ocr_pipeline import process_screenshot_files, process_statement_files, process_uploaded_statement_files
-from sqlalchemy import create_engine, Column, Integer, String, Float, Date, DateTime, func, or_
-
-MIN_ALLOWED_DATE = date(2024, 1, 1)
-
-from flask import (
-    Flask,
-    render_template,
-    request,
-    redirect,
-    url_for,
-    flash,
-)
+from flask import Flask, render_template, jsonify, request, redirect, url_for
 from markupsafe import Markup
 from werkzeug.utils import secure_filename
 from flask_wtf import FlaskForm
-from wtforms import (
-    StringField,
-    FloatField,
-    DateField,
-    SelectField,
-    TextAreaField,
-)
+from wtforms import StringField, FloatField, DateField, SelectField, TextAreaField
 from wtforms.validators import DataRequired
+
 import pandas as pd
+from sqlalchemy import (
+    create_engine,
+    Column,
+    Integer,
+    String,
+    Float,
+    Date,
+    DateTime,
+    func,
+    or_,
+)
 
 from config import Config
 from models import db, Transaction, CategoryRule, OcrRejectedLine
+from ocr_pipeline import (
+    process_screenshot_files,
+    process_statement_files,
+    process_uploaded_statement_files,
+)
 
-# Backwards-compat: other modules use `from app import OcrRejected`
-OcrRejected = OcrRejectedLine
-
-
-# Import the module only; we'll check for functions with hasattr
-import ocr_pipeline
-
+# Date constants
+START_DATE = date(2024, 1, 1)
+MIN_ALLOWED_DATE = date(2024, 1, 1)
 
 # -------------------------------------------------------------------
 # Forms
@@ -639,8 +632,202 @@ def dashboard():
         category_data=category_data,
         trend_data=trend_data,
     )
+
+# ----------------------------
+# API: Get transactions list
+# ----------------------------
+
+# -------------------------------------------------------------------
+# API: Summary for dashboard (/api/summary)
+# -------------------------------------------------------------------
+@app.route("/api/summary", methods=["GET"])
+def api_summary():
+    """
+    Return summary data for the dashboard cards and charts.
+    Uses Transaction.amount sign:
+      - amount > 0 => income
+      - amount < 0 => spending
+    """
+    today = date.today()
+    month_start = date(today.year, today.month, 1)
+
+    # Load all transactions once (fine for personal scale)
+    all_tx = Transaction.query.all()
+
+    # Current balance = sum of all amounts
+    current_balance = sum((t.amount or 0.0) for t in all_tx)
+
+    # This month only
+    month_tx = [
+        t for t in all_tx
+        if t.date is not None and month_start <= t.date <= today
+    ]
+
+    income_this_month = sum((t.amount or 0.0) for t in month_tx if (t.amount or 0) > 0)
+    spent_this_month = sum((t.amount or 0.0) for t in month_tx if (t.amount or 0) < 0)
+    net_this_month = income_this_month + spent_this_month
+
+    # By category (this month)
+    by_category_map = {}
+    for t in month_tx:
+        cat = t.category or "Uncategorized"
+        by_category_map.setdefault(cat, 0.0)
+        by_category_map[cat] += (t.amount or 0.0)
+
+    by_category = [
+        {"category": cat, "amount": amt}
+        for cat, amt in sorted(by_category_map.items(), key=lambda x: x[0].lower())
+    ]
+
+    # Trend: last 30 days by date
+    days_back = 30
+    start_date = today - timedelta(days=days_back - 1)
+    recent_tx = [
+        t for t in all_tx
+        if t.date is not None and start_date <= t.date <= today
+    ]
+
+    trend_map = {}  # date -> dict(income=..., spending=..., net=...)
+    for t in recent_tx:
+        d = t.date
+        if d not in trend_map:
+            trend_map[d] = {"income": 0.0, "spending": 0.0, "net": 0.0}
+
+        amt = float(t.amount or 0.0)
+        if amt > 0:
+            trend_map[d]["income"] += amt
+        elif amt < 0:
+            trend_map[d]["spending"] += amt
+        trend_map[d]["net"] += amt
+
+    trend = []
+    for d in sorted(trend_map.keys()):
+        entry = trend_map[d]
+        trend.append(
+            {
+                "label": d.strftime("%m/%d"),
+                "income": entry["income"],
+                "spending": entry["spending"],  # NOTE: negative numbers; JS flips sign
+                "net": entry["net"],
+            }
+        )
+
+    return jsonify(
+        {
+            "current_balance": float(current_balance),
+            "net_this_month": float(net_this_month),
+            "total_income_this_month": float(income_this_month),
+            "total_spent_this_month": float(spent_this_month),
+            "today": today.strftime("%Y-%m-%d"),
+            "by_category": by_category,
+            "trend": trend,
+        }
+    )
+
+
+# -------------------------------------------------------------------
+# API: Get transactions list for table (/api/transactions)
+# -------------------------------------------------------------------
+@app.route("/api/transactions", methods=["GET"])
+def get_transactions():
+    """Return recent transactions for the transaction table."""
+    limit = request.args.get("limit", 300, type=int)
+
+    rows = (
+        Transaction.query
+        .order_by(Transaction.date.desc(), Transaction.id.desc())
+        .limit(limit)
+        .all()
+    )
+
+    data = []
+    for t in rows:
+        data.append(
+            {
+                "id": t.id,
+                "date": t.date.isoformat() if t.date else "",
+                "amount": float(t.amount or 0.0),
+                "merchant": t.merchant or "",
+                "category": t.category or "",
+                "notes": t.notes or "",
+            }
+        )
+
+    app.logger.info("GET /api/transactions -> %d rows", len(data))
+    return jsonify({"transactions": data})
+
+
+# -------------------------------------------------------------------
+# API: Update a transaction field (/api/transactions/<id>)
+# -------------------------------------------------------------------
+@app.route("/api/transactions/<int:txn_id>", methods=["PUT", "POST"])
+def update_transaction_json(txn_id):
+    """
+    Update a single transaction via JSON payload.
+
+    Expected JSON keys (any subset):
+      - merchant (string)
+      - category (string)
+      - notes (string)
+      - date (YYYY-MM-DD, optional)
+      - amount (float, optional)
+    """
+    tx = Transaction.query.get_or_404(txn_id)
+    data = request.get_json() or {}
+
+    app.logger.info("UPDATE /api/transactions/%s payload=%r", txn_id, data)
+
+    # Core inline-edit fields
+    if "merchant" in data:
+        tx.merchant = (data["merchant"] or "").strip()
+
+    if "category" in data:
+        cat = (data["category"] or "").strip()
+        tx.category = cat or None
+
+    if "notes" in data:
+        notes = (data["notes"] or "").strip()
+        tx.notes = notes or None
+
+    # Optional date support
+    if "date" in data and data["date"]:
+        try:
+            tx.date = datetime.strptime(data["date"], "%Y-%m-%d").date()
+        except ValueError:
+            app.logger.warning(
+                "Bad date format for txn %s: %r", txn_id, data["date"]
+            )
+
+    # Optional amount support
+    if "amount" in data and data["amount"] not in ("", None):
+        try:
+            tx.amount = float(data["amount"])
+        except (TypeError, ValueError):
+            app.logger.warning(
+                "Bad amount for txn %s: %r", txn_id, data["amount"]
+            )
+
+    db.session.commit()
+    db.session.refresh(tx)
+
+    return jsonify(
+        {
+            "status": "ok",
+            "transaction": {
+                "id": tx.id,
+                "date": tx.date.isoformat() if tx.date else "",
+                "merchant": tx.merchant or "",
+                "amount": float(tx.amount or 0.0),
+                "category": tx.category or "",
+                "notes": tx.notes or "",
+            },
+        }
+    )
+
+# ----------------------------
+# Run development server
+# ----------------------------
 if __name__ == "__main__":
-    # Dev server: change host/port as needed
     app.run(debug=True)
 
 
@@ -658,44 +845,53 @@ def reports():
 
 @app.route("/api/transactions/<int:txn_id>", methods=["PUT", "POST"])
 def update_transaction_json(txn_id):
-    txn = Transaction.query.get_or_404(txn_id)
-    data = request.get_json(force=True) or {}
+    """Update a single transaction via JSON payload."""
+    tx = Transaction.query.get_or_404(txn_id)
 
-    # Date: expect 'YYYY-MM-DD'
-    if "date" in data and data["date"]:
-        from datetime import datetime as _dt
-        try:
-            txn.date = _dt.strptime(data["date"], "%Y-%m-%d").date()
-        except ValueError:
-            pass
+    # Safe JSON parsing
+    data = request.get_json() or {}
 
+    # Debug: log what we got
+    app.logger.info("UPDATE /api/transactions/%s payload=%r", txn_id, data)
+
+    # --- Fields used by inline editor ---
     if "merchant" in data:
-        txn.merchant = (data["merchant"] or "").strip()
-
-    if "amount" in data:
-        try:
-            txn.amount = float(data["amount"])
-        except (TypeError, ValueError):
-            pass
+        tx.merchant = (data["merchant"] or "").strip()
 
     if "category" in data:
         cat = (data["category"] or "").strip()
-        txn.category = cat or None
+        tx.category = cat or None
 
     if "notes" in data:
         notes = (data["notes"] or "").strip()
-        txn.notes = notes or None
+        tx.notes = notes or None
+
+    # Optional support for date (YYYY-MM-DD) if ever sent
+    if "date" in data and data["date"]:
+        from datetime import datetime as _dt
+        try:
+            tx.date = _dt.strptime(data["date"], "%Y-%m-%d").date()
+        except ValueError:
+            app.logger.warning("Bad date format for txn %s: %r", txn_id, data["date"])
+
+    # Optional support for amount if ever sent
+    if "amount" in data and data["amount"] not in ("", None):
+        try:
+            tx.amount = float(data["amount"])
+        except (TypeError, ValueError):
+            app.logger.warning("Bad amount for txn %s: %r", txn_id, data["amount"])
 
     db.session.commit()
+    db.session.refresh(tx)
 
-    return {
+    return jsonify({
         "status": "ok",
         "transaction": {
-            "id": txn.id,
-            "date": txn.date.isoformat() if txn.date else None,
-            "merchant": txn.merchant,
-            "amount": float(txn.amount) if txn.amount is not None else None,
-            "category": txn.category,
-            "notes": txn.notes or "",
+            "id": tx.id,
+            "date": tx.date.isoformat() if tx.date else "",
+            "merchant": tx.merchant or "",
+            "amount": float(tx.amount or 0.0),
+            "category": tx.category or "",
+            "notes": tx.notes or "",
         },
-    }
+    })
