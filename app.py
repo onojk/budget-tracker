@@ -7,7 +7,7 @@ from datetime import datetime, date
 START_DATE = date(2024, 1, 1)
 from collections import OrderedDict
 
-from ocr_pipeline import process_screenshot_files, process_statement_files
+from ocr_pipeline import process_screenshot_files, process_statement_files, process_uploaded_statement_files
 from sqlalchemy import create_engine, Column, Integer, String, Float, Date, DateTime, func, or_
 
 MIN_ALLOWED_DATE = date(2024, 1, 1)
@@ -34,7 +34,11 @@ from wtforms.validators import DataRequired
 import pandas as pd
 
 from config import Config
-from models import db, Transaction, CategoryRule
+from models import db, Transaction, CategoryRule, OcrRejectedLine
+
+# Backwards-compat: other modules use `from app import OcrRejected`
+OcrRejected = OcrRejectedLine
+
 
 # Import the module only; we'll check for functions with hasattr
 import ocr_pipeline
@@ -461,84 +465,73 @@ def scan_inbox_core():
 
 
 
+
+
 @app.route("/import/ocr", methods=["GET", "POST"])
 def import_ocr():
     """
-    Import via OCR:
+    Web import for statements / screenshots.
 
-    - User uploads PDF / PNG / JPG / JPEG files from anywhere
-    - We save them to imports_inbox/
-    - We run checksum-based dedupe + OCR + statement parsing
-    - We flash a detailed status message and send user to /transactions
+    Flow:
+      - User uploads screenshots (PNG/JPG/PDF) or *_ocr.txt.
+      - We clear the uploads + statements dirs so we ONLY process this batch.
+      - We save the selected files into `uploads/`.
+      - ocr_pipeline.process_uploaded_statement_files(uploads_dir, statements_dir)
+        runs OCR as needed and parses into the DB.
     """
     from pathlib import Path
-    from flask import current_app
+    from flask import request, flash, redirect, url_for, render_template
 
-    if request.method == "GET":
-        return render_template("import_ocr.html")
+    # Where raw uploads (PNGs/PDFs/etc.) go
+    uploads_dir = Path("uploads")
+    # Where generated *_ocr.txt live
+    statements_dir = Path("uploads/statements")
 
-    uploaded_files = request.files.getlist("screenshot_files")
-    if not uploaded_files:
-        flash("Please choose at least one PDF or image file.", "danger")
-        return redirect(url_for("import_ocr"))
-
-    ALLOWED_EXTS = {".pdf", ".png", ".jpg", ".jpeg"}
-
-    base = Path(current_app.root_path)
-    inbox_dir = base / "imports_inbox"
-    statements_dir = base / "uploads" / "statements"
-    inbox_dir.mkdir(parents=True, exist_ok=True)
+    uploads_dir.mkdir(parents=True, exist_ok=True)
     statements_dir.mkdir(parents=True, exist_ok=True)
 
-    saved_to_inbox = 0
-    invalid = 0
+    if request.method == "POST":
+        # Accept multiple possible field names, old and new
+        uploaded_files = (
+            request.files.getlist("ocr_files")
+            or request.files.getlist("statement_files")
+            or request.files.getlist("files")
+        )
 
-    for f in uploaded_files:
-        if not f.filename:
-            continue
-        ext = Path(f.filename).suffix.lower()
-        if ext not in ALLOWED_EXTS:
-            invalid += 1
-            continue
+        # 1) Clear OLD uploads so we only handle what was just selected
+        for p in uploads_dir.iterdir():
+            try:
+                if p.is_file():
+                    p.unlink()
+            except OSError:
+                pass
 
-        safe_name = secure_filename(f.filename)
-        dest = inbox_dir / safe_name
-        # Avoid overwriting by bumping suffix
-        i = 1
-        while dest.exists():
-            dest = inbox_dir / f"{dest.stem}_{i}{dest.suffix}"
-            i += 1
-        f.save(dest)
-        saved_to_inbox += 1
+        # 2) Optionally clear old *_ocr.txt so we only import this batch
+        for p in statements_dir.glob("*.txt"):
+            try:
+                p.unlink()
+            except OSError:
+                pass
 
-    if invalid and not saved_to_inbox:
-        flash("All files had unsupported extensions; only PDF, PNG, JPG, JPEG are allowed.", "danger")
-        return redirect(url_for("import_ocr"))
+        saved_any = False
+        for f in uploaded_files:
+            if not f or not f.filename:
+                continue
+            dest = uploads_dir / f.filename
+            f.save(dest)
+            saved_any = True
 
-    # Now run checksum-based OCR → statements + parse
-    from ocr_pipeline import process_uploaded_statement_files
+        if not saved_any:
+            flash("No files were selected for import.", "warning")
+            return redirect(url_for("import_ocr"))
 
-    stats = process_uploaded_statement_files(
-        uploads_dir=inbox_dir,
-        statements_dir=statements_dir,
-        db_session=db.session,
-        Transaction=Transaction,
-    )
+        # ✅ Use your existing PNG/PDF → OCR → *_ocr.txt → DB pipeline
+        stats = process_uploaded_statement_files(uploads_dir, statements_dir)
 
-    saved_files = stats.get("saved_files", 0)
-    skipped_files = stats.get("skipped_duplicates", 0)
-    added_txs = stats.get("added_transactions", 0)
+        return render_template("import_report.html", stats=stats, report=stats)
 
-    msg_parts = [
-        f"saved {saved_files} new file(s)",
-        f"skipped {skipped_files} exact duplicates (based on checksum)",
-        f"added {added_txs} new transactions",
-    ]
-
-# ZEN LION FINAL VICTORY — CLEAN ROOT
-from flask import redirect
-
-# ZEN LION FINAL VICTORY — PERFECT DASHBOARD
+    # GET: show upload form
+    return render_template("import_ocr.html")
 
 @app.route("/")
 def home():

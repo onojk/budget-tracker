@@ -1,88 +1,11 @@
-
-# ---- Safe rename/replace helpers (ignore missing src on first OCR run) ----
-import os as _ocr_os
-
-
-
-# ==== OCR smart open wrapper ==================================
-
-
-# ==== OCR Path.rename shim ===================================
-import pathlib as _ocr_pathlib
-
-__ocr_real_path_rename = _ocr_pathlib.Path.rename
-
-def _ocr_safe_path_rename(self, target, *args, **kwargs):
-    src_str = str(self)
-    # Ignore missing previous *_ocr.txt backups on first run
-    if src_str.endswith("_ocr.txt"):
-        try:
-            return __ocr_real_path_rename(self, target, *args, **kwargs)
-        except FileNotFoundError:
-            # Nothing to rotate yet; safe to skip
-            return
-    return __ocr_real_path_rename(self, target, *args, **kwargs)
-
-_ocr_pathlib.Path.rename = _ocr_safe_path_rename
-# =============================================================
-
-import builtins as _builtins
-
-def _ocr_adjust_path(path):
-    import os
-    # If someone tries to use _ocr.pass0.tmp but it doesn't exist,
-    # and a matching _ocr.pass0.txt DOES exist, use that instead.
-    if isinstance(path, str) and path.endswith("_ocr.pass0.tmp"):
-        if not os.path.exists(path):
-            alt = path[:-3] + "txt"  # swap .tmp -> .txt
-            if os.path.exists(alt):
-                path = alt
-    return path
-
-_original_open = _builtins.open
-
-def _ocr_open(path, *args, **kwargs):
-    return _original_open(_ocr_adjust_path(path), *args, **kwargs)
-
-_builtins.open = _ocr_open
-# =============================================================
-
-_original_rename = _ocr_os.rename
-_original_replace = _ocr_os.replace
-
-def _safe_rename(src, dst, *args, **kwargs):
-    try:
-        return _original_rename(src, dst, *args, **kwargs)
-    except FileNotFoundError:
-        # No previous file to rotate (first OCR pass) — this is fine.
-        return
-
-def _safe_replace(src, dst, *args, **kwargs):
-    try:
-        return _original_replace(src, dst, *args, **kwargs)
-    except FileNotFoundError:
-        # No previous file to rotate (first OCR pass) — this is fine.
-        return
-
-# Monkey-patch within this module so all os.rename/os.replace here are safe
-_ocr_os.rename = _safe_rename
-_ocr_os.replace = _safe_replace
-# ---------------------------------------------------------------------------
-
 import csv
 #!/usr/bin/env python3
-"""
-ocr_pipeline.py
 
-
-# ---- safe rename helper ----
-def safe_rename(src, dst):
-    import os
     try:
         safe_rename(src, dst)
     except FileNotFoundError:
-        pass
-# ---------------------------
+        # No previous OCR text file to rotate; safe to continue
+        return
 OCR + import pipeline for statements and screenshots.
 
 Responsibilities:
@@ -560,7 +483,7 @@ def _parse_capone_0728_statement(txt_path):
         end_year = start_year
 
     def _month_year_for_abbrev(mon_abbrev: str):
-        """Map 'Jan'/'Feb'/etc to (year, month) within this period."""
+
         mon_key = mon_abbrev.upper()
         mnum = MONTH.get(mon_key)
         if mnum is None:
@@ -895,7 +818,7 @@ def process_screenshot_files_entrypoint(files=None):
 
 
 def compute_checksum(path: Path) -> str:
-    """Return md5 checksum of a file path."""
+
     h = hashlib.md5()
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(8192), b""):
@@ -1955,63 +1878,3 @@ def _guess_category(description: str) -> str:
         if any(k in d for k in kw):
             return cat
     return "Uncategorized"
-
-# ---- helper: safe_unlink --------------------------------------------
-def safe_unlink(path):
-    import os
-    try:
-        os.unlink(path)
-    except FileNotFoundError:
-        return
-# ---------------------------------------------------------------------
-
-# ==== OCR filesystem helpers ==========================================
-def safe_rename(src, dst):
-    try:
-        safe_rename(src, dst)
-    except FileNotFoundError:
-        return
-
-def safe_unlink(path):
-    try:
-        os.unlink(path)
-    except FileNotFoundError:
-        return
-# ======================================================================
-
-# ==== OCR filesystem helpers ==========================================
-def safe_rename(src, dst):
-    import os
-    try:
-        os.replace(src, dst)
-    except FileNotFoundError:
-        pass
-
-def safe_unlink(path):
-    """Delete file if it exists; ignore missing temp files."""
-    import os
-    try:
-        os.unlink(path)
-    except FileNotFoundError:
-        pass
-# ======================================================================
-
-# ==== OCR filesystem helpers (final clean version) ====================
-def safe_rename(src, dst):
-    # Rename src->dst safely; ignore missing source on first OCR pass.
-    import os
-    try:
-        os.replace(src, dst)
-    except FileNotFoundError:
-        pass
-
-def safe_unlink(path):
-    # Delete file if it exists; ignore missing temp files.
-    import os
-    try:
-        os.unlink(path)
-    except FileNotFoundError:
-        pass
-# ======================================================================
-
-
