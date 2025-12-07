@@ -1,9 +1,123 @@
+
 {% extends "base.html" %}
 {% block content %}
-<div class="container py-4"><h1>Transactions</h1>
-<table class="table table-hover"><thead class="table-dark"><tr><th>Date</th><th>Amount</th><th>Merchant</th><th>Category</th><th>Notes</th></tr></thead><tbody>
-{% for t in transactions %}
-<tr data-id="{{ t.id }}"><td>{{ t.date.strftime("%Y-%m-%d") }}</td><td class="{{ "text-danger" if t.amount < 0 else "text-success" }} fw-bold">${{ "%.2f" % t.amount }}</td><td class="editable" data-field="merchant">{{ t.merchant }}</td><td class="editable" data-field="category">{{ t.category }}</td><td class="editable" data-field="notes">{{ t.notes or "" }}</td></tr>{% endfor %}</tbody></table>
-<h3>Add Transaction</h3><form method="POST" action="/add_transaction" class="row g-3 mb-5"><div class="col-md-2"><input type="date" name="date" class="form-control" required></div><div class="col-md-2"><input type="number" step="0.01" name="amount" class="form-control" required></div><div class="col-md-3"><input type="text" name="merchant" class="form-control"></div><div class="col-md-2"><input type="text" name="category" class="form-control"></div><div class="col-md-2"><input type="text" name="notes" class="form-control"></div><div class="col-md-1"><button class="btn btn-success">Add</button></div></form></div>
-<script>document.querySelectorAll(".editable").forEach(c=>c.addEventListener("dblclick",function(){if(this.querySelector("input"))return;const f=this.dataset.field,v=this.textContent.trim(),i=document.createElement("input");i.value=v;i.className="form-control form-control-sm";this.textContent="";this.appendChild(i);i.focus();i.addEventListener("blur",()=>{fetch("/update_transaction/"+this.parentNode.dataset.id,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({[f]:i.value||null})}).then(()=>location.reload())})}));</script>
+<h1>Transactions</h1>
+<p style="color:#0066cc;">Click any cell to edit • Press Enter or click away to save instantly</p>
+
+<table class="table table-sm table-hover" id="txn-table">
+  <thead class="thead-dark">
+    <tr>
+      <th>Date</th>
+      <th>Merchant / Description</th>
+      <th style="text-align:right">Amount</th>
+      <th>Category</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for t in transactions %}
+    <tr data-id="{{ t.id }}">
+      <td class="editable" data-field="date">
+        {{ t.date.isoformat() if t.date else '' }}
+      </td>
+      <td class="editable" data-field="merchant">
+        {{ t.merchant or '' }}
+      </td>
+      <td class="editable" data-field="amount" style="text-align:right">
+        ${{ "%.2f" % t.amount if t.amount is not none else "0.00" }}
+      </td>
+      <td class="editable" data-field="category">
+        {{ t.category or 'Uncategorized' }}
+      </td>
+      <td class="editable" data-field="notes">
+        {{ t.notes or '' }}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<style>
+  .editable { cursor: pointer; padding: 6px 10px !important; border-radius: 4px; }
+  .editable:hover { background: #f0f8ff; }
+  .editing { background: #fff3cd !important; }
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.editable').forEach(cell => {
+    cell.addEventListener('click', function() {
+      if (this.querySelector('input')) return;
+
+      const field = this.dataset.field;
+      let value = this.textContent.trim();
+
+      if (field === 'amount') {
+        value = value.replace('$', '').trim();
+      }
+
+      const input = document.createElement('input');
+      input.value = value;
+      if (field === 'amount') {
+        input.type = 'number';
+        input.step = '0.01';
+      } else if (field === 'date') {
+        input.type = 'date';
+      } else {
+        input.type = 'text';
+      }
+      input.style.width = '100%';
+
+      this.textContent = '';
+      this.appendChild(input);
+      this.classList.add('editing');
+      input.focus();
+
+      const row = this.closest('tr');
+      const txnId = row.dataset.id;
+
+      const revert = () => {
+        this.innerHTML = value || '';
+        if (field === 'amount' && value) {
+          const num = parseFloat(value);
+          if (!isNaN(num)) {
+            this.innerHTML = '$' + num.toFixed(2);
+          }
+        }
+        this.classList.remove('editing');
+      };
+
+      const save = () => {
+        let newVal = input.value.trim();
+        if (field === 'amount') {
+          const num = parseFloat(newVal);
+          if (isNaN(num)) {
+            revert();
+            return;
+          }
+          newVal = num;
+          this.textContent = '$' + num.toFixed(2);
+        } else {
+          this.textContent = newVal || '';
+        }
+        this.classList.remove('editing');
+
+        fetch(`/api/transactions/${txnId}`, {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ [field]: newVal })
+        }).catch(err => {
+          console.error('Update failed', err);
+        });
+      };
+
+      input.addEventListener('blur', save);
+      input.addEventListener('keydown', e => {
+        if (e.key === 'Enter') save();
+        if (e.key === 'Escape') revert();
+      });
+    });
+  });
+});
+</script>
 {% endblock %}
