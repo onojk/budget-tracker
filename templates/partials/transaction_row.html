@@ -1,0 +1,15 @@
+<tr id="txn-{{ txn.id }}">
+    <td>{{ txn.date.strftime('%Y-%m-%d') }}</td>
+    <td>{{ txn.description }}</td>
+    <td class="amount {% if txn.amount < 0 %}negative{% endif %}">
+        ${{ "%.2f" % txn.amount.__abs__() }}
+    </td>
+    <td>{{ txn.category or '' }}</td>
+    <td>{{ txn.notes or '' }}</td>
+    <td>
+        <button hx-get="/transaction/{{ txn.id }}/edit"
+                hx-target="#txn-{{ txn.id }}"
+                hx-swap="outerHTML"
+                class="btn-small">Edit</button>
+    </td>
+</tr>

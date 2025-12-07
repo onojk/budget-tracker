@@ -1,0 +1,20 @@
+<tr id="txn-{{ txn.id }}" style="background:#fff8d9">
+    <form hx-post="/transaction/{{ txn.id }}/edit" hx-target="#txn-{{ txn.id }}" hx-swap="outerHTML">
+        <td><input type="date" name="date" value="{{ txn.date.isoformat() }}" required></td>
+        <td><input type="text" name="description" value="{{ txn.description }}" required></td>
+        <td><input type="number" step="0.01" name="amount" value="{{ txn.amount }}"></td>
+        <td>
+            <select name="category">
+                {% set cats = ['Bills','Debt Payments','Dining','Fun & Games','Groceries','Income','Subscriptions','Transfer & P2P','Uncategorized'] %}
+                {% for cat in cats %}
+                <option value="{{ cat }}" {% if cat == txn.category %}selected{% endif %}>{{ cat }}</option>
+                {% endfor %}
+            </select>
+        </td>
+        <td><input type="text" name="notes" value="{{ txn.notes or '' }}"></td>
+        <td>
+            <button type="submit">Save</button>
+            <button type="button" hx-get="/transaction/{{ txn.id }}/edit" hx-target="#txn-{{ txn.id }}" hx-swap="outerHTML">Cancel</button>
+        </td>
+    </form>
+</tr>
