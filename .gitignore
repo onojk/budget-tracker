@@ -37,3 +37,9 @@ pd
 # Local backup archives – do NOT commit
 budget_app_backup_*.tar.gz
 *.tar.gz
+
+# Never commit bank statements or local archive folders
+*.pdf
+*.zip
+old1/
+uploads/statements/
