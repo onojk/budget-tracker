@@ -161,7 +161,7 @@ async function loadTransactions() {
 async function saveTransactionField(id, payload) {
   try {
     await fetchJSON(`/api/transactions/${id}`, {
-      method: "POST",
+      method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });

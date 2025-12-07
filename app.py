@@ -656,7 +656,7 @@ def reports():
     return redirect("/dashboard")
 
 
-@app.route("/api/transactions/<int:txn_id>", methods=["PUT"])
+@app.route("/api/transactions/<int:txn_id>", methods=["PUT", "POST"])
 def update_transaction_json(txn_id):
     txn = Transaction.query.get_or_404(txn_id)
     data = request.get_json(force=True) or {}
