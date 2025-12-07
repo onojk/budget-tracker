@@ -758,8 +758,55 @@ def get_transactions():
 
 
 # -------------------------------------------------------------------
-# API: Update a transaction field (/api/transactions/<id>)
+# API: Simple inline update for dashboard (/api/transactions/update/<id>)
 # -------------------------------------------------------------------
+@app.route("/api/transactions/update/<int:txn_id>", methods=["POST"])
+def update_transaction_inline(txn_id):
+    """
+    Dedicated endpoint for inline edits from the dashboard/transactions table.
+    Updates only merchant/category/notes.
+    """
+    tx = Transaction.query.get_or_404(txn_id)
+    data = request.get_json() or {}
+
+    app.logger.info("INLINE UPDATE txn=%s payload=%r", txn_id, data)
+
+    if "merchant" in data:
+        tx.merchant = (data["merchant"] or "").strip()
+
+    if "category" in data:
+        cat = (data["category"] or "").strip()
+        tx.category = cat or None
+
+    if "notes" in data:
+        notes = (data["notes"] or "").strip()
+        tx.notes = notes or None
+
+    db.session.commit()
+    db.session.refresh(tx)
+
+    return jsonify(
+        {
+            "status": "ok",
+            "id": tx.id,
+            "merchant": tx.merchant or "",
+            "category": tx.category or "",
+            "notes": tx.notes or "",
+        }
+    )
+
+@app.route("/add_manual")
+def add_manual():
+    from flask import redirect, url_for
+    return redirect(url_for("dashboard"))
+
+
+@app.route("/reports")
+def reports():
+    from flask import redirect
+    return redirect("/dashboard")
+
+
 @app.route("/api/transactions/<int:txn_id>", methods=["PUT", "POST"])
 def update_transaction_json(txn_id):
     """
@@ -777,7 +824,7 @@ def update_transaction_json(txn_id):
 
     app.logger.info("UPDATE /api/transactions/%s payload=%r", txn_id, data)
 
-    # Core inline-edit fields
+    # --- Core inline-edit fields (what the UI is editing) ---
     if "merchant" in data:
         tx.merchant = (data["merchant"] or "").strip()
 
@@ -789,7 +836,7 @@ def update_transaction_json(txn_id):
         notes = (data["notes"] or "").strip()
         tx.notes = notes or None
 
-    # Optional date support
+    # --- Optional: date support (YYYY-MM-DD) ---
     if "date" in data and data["date"]:
         try:
             tx.date = datetime.strptime(data["date"], "%Y-%m-%d").date()
@@ -798,7 +845,7 @@ def update_transaction_json(txn_id):
                 "Bad date format for txn %s: %r", txn_id, data["date"]
             )
 
-    # Optional amount support
+    # --- Optional: amount support ---
     if "amount" in data and data["amount"] not in ("", None):
         try:
             tx.amount = float(data["amount"])
@@ -829,69 +876,3 @@ def update_transaction_json(txn_id):
 # ----------------------------
 if __name__ == "__main__":
     app.run(debug=True)
-
-
-@app.route("/add_manual")
-def add_manual():
-    from flask import redirect, url_for
-    return redirect(url_for("dashboard"))
-
-
-@app.route("/reports")
-def reports():
-    from flask import redirect
-    return redirect("/dashboard")
-
-
-@app.route("/api/transactions/<int:txn_id>", methods=["PUT", "POST"])
-def update_transaction_json(txn_id):
-    """Update a single transaction via JSON payload."""
-    tx = Transaction.query.get_or_404(txn_id)
-
-    # Safe JSON parsing
-    data = request.get_json() or {}
-
-    # Debug: log what we got
-    app.logger.info("UPDATE /api/transactions/%s payload=%r", txn_id, data)
-
-    # --- Fields used by inline editor ---
-    if "merchant" in data:
-        tx.merchant = (data["merchant"] or "").strip()
-
-    if "category" in data:
-        cat = (data["category"] or "").strip()
-        tx.category = cat or None
-
-    if "notes" in data:
-        notes = (data["notes"] or "").strip()
-        tx.notes = notes or None
-
-    # Optional support for date (YYYY-MM-DD) if ever sent
-    if "date" in data and data["date"]:
-        from datetime import datetime as _dt
-        try:
-            tx.date = _dt.strptime(data["date"], "%Y-%m-%d").date()
-        except ValueError:
-            app.logger.warning("Bad date format for txn %s: %r", txn_id, data["date"])
-
-    # Optional support for amount if ever sent
-    if "amount" in data and data["amount"] not in ("", None):
-        try:
-            tx.amount = float(data["amount"])
-        except (TypeError, ValueError):
-            app.logger.warning("Bad amount for txn %s: %r", txn_id, data["amount"])
-
-    db.session.commit()
-    db.session.refresh(tx)
-
-    return jsonify({
-        "status": "ok",
-        "transaction": {
-            "id": tx.id,
-            "date": tx.date.isoformat() if tx.date else "",
-            "merchant": tx.merchant or "",
-            "amount": float(tx.amount or 0.0),
-            "category": tx.category or "",
-            "notes": tx.notes or "",
-        },
-    })
