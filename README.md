@@ -1,63 +1,57 @@
 🧮 Budget Tracker
 
-A clean, fast, open-source personal budgeting tool with real-time inline editing
+A clean, fast, open-source personal budgeting tool with real-time inline editing.
 
 ✨ Overview
 
-Budget Tracker is a lightweight Flask-based personal finance manager that helps you:
+Budget Tracker is a lightweight, developer-friendly Flask app that helps you manage your personal finances with clarity and speed. It includes a dashboard for quick insights, a transaction manager, import support, and now true inline editing right inside the transactions table — no page reload required.
 
-Track income and spending
+This project prioritizes:
 
-Categorize expenses
+⏱ Speed
 
-Monitor trends via the dashboard
+🧽 Simplicity
 
-Audit spending habits
+📊 Transparency
 
-Export & review transactions
-
-Edit transactions inline, live, with no page reloads
-
-The project focuses on speed, simplicity, and accuracy — ideal for personal use or as a starting point for a more full-featured budgeting system.
+🔧 A codebase that’s easy to modify or extend
 
 🚀 Features
 🧾 Transaction Management
 
-Add income & expenses manually or via import
+Add, view, sort, and categorize transactions
 
-Auto-sort and format transactions
+Import workflow (CSV / OCR integrations optional)
 
-Click any cell to edit instantly (inline editing)
+Real-time inline editing (click a cell, edit instantly)
 
-Live updates using a JSON PUT API
+Amount validation
 
-Edits persist immediately to the database
+Auto-update JSON API
+
+Category + notes editing
 
 📊 Dashboard
 
-Summary cards for spending, income, deltas
+Income, expenses, and net totals
 
-Trend charts
+Trendline-ready API endpoints
 
-Category totals
+Daily / weekly / monthly insights
 
-Daily, weekly, and monthly views
-
-API-ready backend (/api/summary, /api/transactions)
+Clean UI using standard HTML + JS
 
 ⚙️ Technical Stack
 
-Backend: Flask, SQLAlchemy
+Backend: Flask + SQLAlchemy
 
-Database: SQLite (default), easily swappable
+Database: SQLite by default
 
-Frontend: HTML, Jinja, JS
+Frontend: HTML, CSS, Jinja, vanilla JavaScript
 
-Live Editing: Pure Vanilla JS (no frameworks) + REST API
+Live Editing: Custom inline editor + REST API (PUT /api/transactions/<id>)
 
-Zero bloated dependencies
-
-📦 Installation & Setup
+📦 Installation
 1 — Clone the repository
 git clone https://github.com/onojk/budget-tracker.git
 cd budget-tracker
@@ -67,43 +61,25 @@ python3 -m venv budget-env
 source budget-env/bin/activate
 
 3 — Install dependencies
-
-If the project includes requirements.txt:
-
 pip install -r requirements.txt
 
 
-Otherwise:
+Or manually:
 
 pip install flask sqlalchemy
 
-4 — Initialize the database (first run only)
-python init_db.py  # if available
-
-
-(If you don't have init_db yet, the app will create tables automatically.)
-
-5 — Run the app
+4 — Run the application
 python app.py
 
 
-Visit:
+Go to:
 
-http://127.0.0.1:5000
+http://127.0.0.1:5000/
 
-⚡ Inline Editing (New!)
+⚡ Inline Editing (New)
 
-The Transactions page now supports true real-time cell editing, powered by:
-
-A frontend JS handler that listens to clicks on .editable table cells
-
-A dynamic <input> that appears when you click
-
-A PUT /api/transactions/<id> JSON update
-
-Automatic re-render of the updated value
-
-Editable fields:
+The Transactions page supports true inline editing via a JSON API.
+Click any cell in the table to edit:
 
 Date
 
@@ -111,66 +87,60 @@ Merchant
 
 Description
 
-Amount (validated as float)
+Amount
 
 Category
 
 Notes
 
-Example JSON update:
-PUT /api/transactions/42
-{
-  "amount": 19.99,
-  "category": "Groceries",
-  "notes": "Fixed amount"
-}
+Press Enter or click away to save.
+The backend updates instantly through:
+
+PUT /api/transactions/<id>
 
 
-The server responds:
+Example request sent via JS:
 
 {
-  "status": "ok",
-  "transaction": {
-    "id": 42,
-    "date": "2025-01-08",
-    "merchant": "FOOD4LESS",
-    "amount": 19.99,
-    "category": "Groceries",
-    "notes": ""
-  }
+  "amount": 42.19,
+  "category": "Dining",
+  "notes": "Corrected value"
 }
 
 📁 Project Structure
 budget_tracker/
 │
-├── app.py                    # Main Flask app + routes + inline-edit API
-├── models.py                 # SQLAlchemy models
-├── templates/
-│   ├── base.html             # Global layout
-│   ├── dashboard.html        # Dashboard UI
-│   ├── transactions.html     # Inline editing UI
-│   └── partials/             # (optional reusable components)
-├── static/
-│   ├── styles.css            # Styles
-│   └── dashboard.js          # Dashboard API fetchers
+├── app.py                      # Flask app, routes, API, inline edit handler
+├── models.py                   # SQLAlchemy ORM models
 │
-├── budget-env/               # Virtual environment
-└── README.md                 # You're here 🌟
+├── templates/
+│   ├── base.html               # global layout
+│   ├── dashboard.html          # summary + charts
+│   ├── transactions.html       # inline editing UI
+│   └── partials/               # optional components
+│
+├── static/
+│   ├── styles.css              # site styling
+│   └── dashboard.js            # AJAX dashboard fetchers
+│
+├── budget-env/                 # virtual environment
+└── README.md
 
-🔌 API Endpoints
-GET /api/transactions?limit=300
+🔌 REST API
+GET /api/transactions?limit=N
 
-Returns latest transactions (dashboard uses this).
+Returns latest transactions.
 
 GET /api/summary
 
-Returns summary totals (income, spending, category breakdowns).
+Returns totals for dashboard panels.
 
 PUT /api/transactions/<id>
 
-Updates a single transaction in real time.
+Updates a single transaction field.
+Returns updated transaction object.
 
-🔒 Data Model Summary
+🧠 Data Model
 
 Transaction includes:
 
@@ -194,77 +164,72 @@ checksum
 
 created_at
 
-Ideal for syncing with imports, OCR, or API-driven feeds.
+SQLite auto-creates the schema at first run.
 
 🧭 Roadmap
 Near-term
 
-Category autocomplete
+Sorting + Filtering UI
 
-Bulk editing
+Category autocomplete
 
 Delete transaction button
 
-Import assistants (CSV, OCR)
-
-Dashboard enhancements (filters, drilldown)
+Bulk-edit selections
 
 Mid-term
 
-Multi-account support
-
-Rules engine (auto-classify merchants)
-
 Budget envelopes
 
-Monthly goals & alerts
+Monthly alerts
+
+CSV importer with mapping wizard
 
 Long-term
 
-Mobile-friendly responsive UI
-
 Multi-user support
 
-Cloud sync
+Responsive mobile UI
 
-Export to Excel / Google Sheets
+Cloud sync + backup
 
 🤝 Contributing
 
-Pull requests welcome! Before contributing:
+Pull requests welcome!
 
-Create a branch
+To contribute:
 
-Ensure project runs:
+Fork the repository
 
-python -m py_compile app.py
-python app.py
+Create a feature branch
 
+Run tests + local build
 
-Add tests where reasonable
+Submit a PR
 
-Submit PR on GitHub
-
-📝 License
-
-This project is open-source. If you'd like, I can generate:
-
+📜 License — MIT
 MIT License
 
-Apache 2.0
+Copyright (c) 2025 Jonathan Kendall
 
-GPLv3
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-Creative Commons
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-Just tell me which license you prefer.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 ⭐ Acknowledgments
 
-Created and maintained by ONOJK123 / Jonathan Kendall, blending:
-
-personal finance discipline
-
-clean software engineering
-
-realtime UX polish
+Developed by ONOJK123 (Jonathan Kendall) — combining clean engineering, data accuracy, and UX polish into a compact personal finance tool.
