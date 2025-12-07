@@ -1,251 +1,270 @@
-📘 Budget App – OCR-Driven Personal Finance Manager
+🧮 Budget Tracker
 
-A fully local, privacy-first personal finance dashboard that automatically imports, OCR-parses, categorizes, and visualizes transactions across all major financial accounts, including:
+A clean, fast, open-source personal budgeting tool with real-time inline editing
 
-Chase Credit Cards
+✨ Overview
 
-Capital One (Platinum, Quicksilver)
+Budget Tracker is a lightweight Flask-based personal finance manager that helps you:
 
-CareCredit / Synchrony
+Track income and spending
 
-PayPal Credit
+Categorize expenses
 
-PayPal Main Account Statements
+Monitor trends via the dashboard
 
-Citi Costco
+Audit spending habits
 
-Venmo CSV Monthly Summaries
+Export & review transactions
 
-Generic PDF credit card statements
+Edit transactions inline, live, with no page reloads
 
-The app provides:
-
-A web UI (Flask) with charts, tables, and reports
-
-An advanced, multi-pass OCR engine for PDFs/images
-
-Full bank-specific parsers (Chase, Capital One, PayPal Credit)
-
-Duplicate detection via SHA-256 checksums
-
-Bulk import tools including a Unified Super-Importer
-
-A local SQLite database of structured transactions
-
-All processing is done locally, ensuring your financial data never leaves your machine.
+The project focuses on speed, simplicity, and accuracy — ideal for personal use or as a starting point for a more full-featured budgeting system.
 
 🚀 Features
-✔ Automatic PDF Import & OCR
+🧾 Transaction Management
 
-Place statements into uploads/statements/ or use the super importer, and the app:
+Add income & expenses manually or via import
 
-Computes a checksum to avoid duplicates
+Auto-sort and format transactions
 
-OCRs PDFs → text (*_ocr.txt)
+Click any cell to edit instantly (inline editing)
 
-Parses the text using specialized parsers
+Live updates using a JSON PUT API
 
-Inserts clean, structured financial transactions
+Edits persist immediately to the database
 
-✔ Bank-Specific Enhanced Parsers
+📊 Dashboard
 
-Each institution has a dedicated extraction pipeline:
+Summary cards for spending, income, deltas
 
-Chase — Full "Transaction Detail" block parser
+Trend charts
 
-Capital One — Full debit/credit detection + interest parsing
+Category totals
 
-PayPal Credit — Synchrony-format parser
+Daily, weekly, and monthly views
 
-Generic OCR Parser — Fallback for unknown bank layouts
+API-ready backend (/api/summary, /api/transactions)
 
-✔ Interactive Web Dashboard
+⚙️ Technical Stack
 
-View totals, spending trends, monthly breakdowns
+Backend: Flask, SQLAlchemy
 
-Filter by category, date, or source account
+Database: SQLite (default), easily swappable
 
-Search merchants
+Frontend: HTML, Jinja, JS
 
-Export to CSV
+Live Editing: Pure Vanilla JS (no frameworks) + REST API
 
-✔ Unified Import Tools
+Zero bloated dependencies
 
-The project includes multiple import utilities:
+📦 Installation & Setup
+1 — Clone the repository
+git clone https://github.com/onojk/budget-tracker.git
+cd budget-tracker
 
-Script	Purpose
-import_all_ocr_to_db.py	Import all *_ocr.txt files
-import_all_pdfs_to_db.py	Import all PDFs already inside uploads/statements/
-import_everything_from_downloads.py	🔥 Full multi-account import from ~/Downloads/accounts (CareCredit, Chase, CapitalOne, PayPal, Citi, etc.)
-📂 Project Structure
-budget_app/
-│
-├── app.py                     # Flask webserver + routes
-├── ocr_pipeline.py            # OCR engine + parsers
-├── models.py                  # Transaction model
-├── import_all_ocr_to_db.py    # Bulk import from OCR text
-├── import_all_pdfs_to_db.py   # Bulk import from PDFs
-├── import_everything_from_downloads.py  # SUPER IMPORTER
-│
-├── static/
-│   ├── styles.css
-│   ├── dashboard.js
-│   └── ...
-│
-├── templates/
-│   ├── base.html
-│   ├── dashboard.html
-│   ├── transactions.html
-│   └── reports.html
-│
-└── uploads/
-    └── statements/
-        ├── *_ocr.txt
-        ├── *.pdf
-        └── checksum index files
-
-🔧 Installation
-1. Clone the repo
-git clone https://github.com/onojk/budget_app.git
-cd budget_app
-
-2. Create & activate the virtualenv
+2 — Create a virtual environment
 python3 -m venv budget-env
 source budget-env/bin/activate
+
+3 — Install dependencies
+
+If the project includes requirements.txt:
+
 pip install -r requirements.txt
 
-3. Start the server
+
+Otherwise:
+
+pip install flask sqlalchemy
+
+4 — Initialize the database (first run only)
+python init_db.py  # if available
+
+
+(If you don't have init_db yet, the app will create tables automatically.)
+
+5 — Run the app
 python app.py
 
 
-Open browser → http://127.0.0.1:5000
+Visit:
 
-🖨 OCR Pipeline
+http://127.0.0.1:5000
 
-The OCR pipeline performs multiple passes to ensure accuracy:
+⚡ Inline Editing (New!)
 
-PDF → image → text extraction (3-pass consistency)
+The Transactions page now supports true real-time cell editing, powered by:
 
-Cleans text, normalizes spacing, removes OCR artifacts
+A frontend JS handler that listens to clicks on .editable table cells
 
-Parses into structured rows:
+A dynamic <input> that appears when you click
 
+A PUT /api/transactions/<id> JSON update
+
+Automatic re-render of the updated value
+
+Editable fields:
+
+Date
+
+Merchant
+
+Description
+
+Amount (validated as float)
+
+Category
+
+Notes
+
+Example JSON update:
+PUT /api/transactions/42
 {
-  "Date": "2025-06-18",
-  "Amount": -42.17,
-  "Merchant": "ALBERTSONS #0733",
-  "Category": "",
-  "Source": "Chase",
-  "Notes": "from 2025-06-18.pdf"
+  "amount": 19.99,
+  "category": "Groceries",
+  "notes": "Fixed amount"
 }
 
-📥 Importing Transactions
-Option A — Import OCR text files
-python import_all_ocr_to_db.py
 
-Option B — Import PDFs already in uploads/statements
-python import_all_pdfs_to_db.py
+The server responds:
 
-Option C — SUPER IMPORTER (Recommended)
+{
+  "status": "ok",
+  "transaction": {
+    "id": 42,
+    "date": "2025-01-08",
+    "merchant": "FOOD4LESS",
+    "amount": 19.99,
+    "category": "Groceries",
+    "notes": ""
+  }
+}
 
-Automatically imports EVERYTHING under ~/Downloads/accounts, including:
+📁 Project Structure
+budget_tracker/
+│
+├── app.py                    # Main Flask app + routes + inline-edit API
+├── models.py                 # SQLAlchemy models
+├── templates/
+│   ├── base.html             # Global layout
+│   ├── dashboard.html        # Dashboard UI
+│   ├── transactions.html     # Inline editing UI
+│   └── partials/             # (optional reusable components)
+├── static/
+│   ├── styles.css            # Styles
+│   └── dashboard.js          # Dashboard API fetchers
+│
+├── budget-env/               # Virtual environment
+└── README.md                 # You're here 🌟
 
-carecredit/*
+🔌 API Endpoints
+GET /api/transactions?limit=300
 
-capitalone/*
+Returns latest transactions (dashboard uses this).
 
-chase_9383/*
+GET /api/summary
 
-chase_9765/*
+Returns summary totals (income, spending, category breakdowns).
 
-citi_costco/*
+PUT /api/transactions/<id>
 
-paypal_CC/*
+Updates a single transaction in real time.
 
-paypal_general/*
+🔒 Data Model Summary
 
-venmo/*.csv
+Transaction includes:
 
-Run:
+id
 
-python import_everything_from_downloads.py
+date
+
+merchant
+
+description
+
+amount
+
+category
+
+notes
+
+import_source
+
+checksum
+
+created_at
+
+Ideal for syncing with imports, OCR, or API-driven feeds.
+
+🧭 Roadmap
+Near-term
+
+Category autocomplete
+
+Bulk editing
+
+Delete transaction button
+
+Import assistants (CSV, OCR)
+
+Dashboard enhancements (filters, drilldown)
+
+Mid-term
+
+Multi-account support
+
+Rules engine (auto-classify merchants)
+
+Budget envelopes
+
+Monthly goals & alerts
+
+Long-term
+
+Mobile-friendly responsive UI
+
+Multi-user support
+
+Cloud sync
+
+Export to Excel / Google Sheets
+
+🤝 Contributing
+
+Pull requests welcome! Before contributing:
+
+Create a branch
+
+Ensure project runs:
+
+python -m py_compile app.py
+python app.py
 
 
-This will:
+Add tests where reasonable
 
-Recursively find all PDFs
+Submit PR on GitHub
 
-Copy them into a temp folder
+📝 License
 
-Run the full OCR → parse → insert pipeline
+This project is open-source. If you'd like, I can generate:
 
-Handle duplicates
+MIT License
 
-Clean up
+Apache 2.0
 
-Perfect for monthly imports or rebuilding from scratch.
+GPLv3
 
-🧹 Resetting the Database
+Creative Commons
 
-If you want to start clean:
+Just tell me which license you prefer.
 
-python - << 'PY'
-from app import app, db, Transaction
-with app.app_context():
-    db.session.query(Transaction).delete()
-    db.session.commit()
-PY
+⭐ Acknowledgments
 
-📊 Dashboard Features
+Created and maintained by ONOJK123 / TEST USER, blending:
 
-Top categories
+personal finance discipline
 
-Spending over time
+clean software engineering
 
-Income vs expenses
-
-Merchant heatmap
-
-Transaction search
-
-Monthly reports
-
-🧪 Development Notes
-Debugging OCR
-
-To inspect extracted rows:
-
-python - << 'PY'
-from ocr_pipeline import process_statement_files
-rows = process_statement_files(["uploads/statements/2025-06-18_ocr.txt"])
-print(rows)
-PY
-
-Debugging Database
-python - << 'PY'
-from app import app, db, Transaction
-with app.app_context():
-    for tx in Transaction.query.limit(10):
-        print(tx)
-PY
-
-🚀 Roadmap
-
-✨ Automatic category assignment (ML or rule-based)
-
-✨ Merchant normalization (Amazon → "Amazon", DoorDash → "DoorDash")
-
-✨ Monthly budgeting tools
-
-✨ Import UI so no terminal commands are needed
-
-✨ CareCredit-specialized parser
-
-✨ Venmo CSV importer with full transaction merging
-
-💬 Support / Contact
-
-Created by TEST USER
-GitHub: https://github.com/onojk
-
-All processing is offline, local, and private.
+realtime UX polish
