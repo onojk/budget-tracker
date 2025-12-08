@@ -1,11 +1,21 @@
 import os
 import shutil
 import subprocess
+import re
 from pathlib import Path
 from datetime import datetime, date, timedelta
 from collections import OrderedDict
 
-from flask import Flask, render_template, jsonify, request, redirect, url_for
+from flask import (
+    Flask,
+    render_template,
+    request,
+    redirect,
+    url_for,
+    jsonify,
+    flash,
+)
+
 from markupsafe import Markup
 from werkzeug.utils import secure_filename
 from flask_wtf import FlaskForm
@@ -90,30 +100,42 @@ def normalize_string(value) -> str:
         return ""
     return str(value).strip()
 
-
 def parse_date_safe(raw):
     """
-    Parse YYYY-MM-DD dates; reject anything before 2024-01-01.
+    Parse dates from a few common formats and reject anything before 2024-01-01.
+
+    Supported formats:
+      - YYYY-MM-DD  (2025-12-05)
+      - MM/DD/YYYY  (12/05/2025)
+      - MM/DD/YY    (12/05/25)
+
     Returns (date_obj, reason) where date_obj may be None.
     """
     s = normalize_string(raw)
     if not s:
         return None, "empty"
     if "XX" in s:
+        # e.g. 2025-11-XX from some OCR quirks
         return None, "contains XX"
-    try:
-        d = datetime.strptime(s, "%Y-%m-%d").date()
-        if d < MIN_ALLOWED_DATE:
-            return None, "before-min-date"
-        return d, None
-    except ValueError as e:
-        return None, str(e)
+
+    formats = ["%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y"]
+    last_error = None
+
+    for fmt in formats:
+        try:
+            d = datetime.strptime(s, fmt).date()
+            if d < MIN_ALLOWED_DATE:
+                return None, "before-min-date"
+            return d, None
+        except ValueError as e:
+            last_error = str(e)
+
+    return None, last_error or "unrecognized-date-format"
+
 
 def parse_date_safer(raw):
     """Backward-compatible alias – just call parse_date_safe()."""
     return parse_date_safe(raw)
-
-
 
 
 def coerce_amount(raw_amount, direction: str) -> float:
@@ -301,14 +323,46 @@ def get_capone_csv_summary():
         )
     return summary
 
-
-
 @app.route("/transactions")
 def transactions():
-    txs = (
-        Transaction.query.order_by(Transaction.date.desc(), Transaction.id.desc())
-        .all()
-    )
+    """
+    Transactions page with simple filtering + sorting via query params.
+
+    /transactions?category=Groceries&from=2025-11-01&to=2025-11-30&sort=amount&dir=asc
+    """
+    sort = request.args.get("sort", "date")
+    direction = request.args.get("dir", "desc")
+    category = request.args.get("category") or None
+    date_from = request.args.get("from") or None
+    date_to = request.args.get("to") or None
+
+    q = Transaction.query
+
+    if category:
+        q = q.filter(Transaction.category == category)
+
+    if date_from:
+        d_from, _ = parse_date_safe(date_from)
+        if d_from:
+            q = q.filter(Transaction.date >= d_from)
+
+    if date_to:
+        d_to, _ = parse_date_safe(date_to)
+        if d_to:
+            q = q.filter(Transaction.date <= d_to)
+
+    # Sorting: by date or amount
+    if sort == "amount":
+        col = Transaction.amount
+    else:
+        col = Transaction.date
+
+    if direction == "asc":
+        q = q.order_by(col.asc(), Transaction.id.asc())
+    else:
+        q = q.order_by(col.desc(), Transaction.id.desc())
+
+    txs = q.all()
     return render_template("transactions.html", transactions=txs)
 
 @app.route("/transactions/<int:txn_id>/update", methods=["POST"])
@@ -347,67 +401,88 @@ def update_transaction(txn_id):
     db.session.commit()
     return redirect(url_for("transactions"))
 
-
-
 @app.route("/import/csv", methods=["GET", "POST"])
 def import_csv():
+    """
+    CSV importer for Chase Activity Downloads.
+
+    For this specific Chase export:
+      - Details      -> 'MM/DD/YYYY' (the actual posting date)
+      - Posting Date -> merchant / description text
+      - Description  -> numeric amount (negative for debits, positive for credits)
+      - Amount       -> type string (ACH_DEBIT, DEBIT_CARD, ACCT_XFER, etc.)
+    """
+
     if request.method == "POST":
         file = request.files.get("file")
-        if not file or file.filename == "":
-            flash("No file selected", "danger")
-            return redirect(request.url)
+        if not file or not file.filename.lower().endswith(".csv"):
+            flash("Please upload a valid CSV file.", "error")
+            return redirect(url_for("import_csv"))
 
-        # Save temporarily
-        upload_folder = app.config.get("UPLOAD_FOLDER", "uploads")
+        # Save uploaded file
+        upload_folder = "uploads"
         os.makedirs(upload_folder, exist_ok=True)
-        tmp_path = os.path.join(upload_folder, file.filename)
-        file.save(tmp_path)
+        csv_path = os.path.join(upload_folder, file.filename)
+        file.save(csv_path)
 
-        # Read with pandas
-        try:
-            df = pd.read_csv(tmp_path)
-        except Exception as e:
-            flash(f"Error reading CSV: {e}", "danger")
-            return redirect(request.url)
+        # Read CSV via pandas
+        df = pd.read_csv(csv_path)
 
         imported = 0
         skipped_invalid_dates = 0
 
+        # Loop through CSV rows
         for _, row in df.iterrows():
-            parsed_date, err = parse_date_safe(row.get("Date"))
+
+            # -------------- 1️⃣ Date from Details column --------------
+            details_raw = str(row.get("Details", "")).strip()
+
+            parsed_date = None
+            err = None
+
+            if details_raw:
+                # In this Chase CSV, Details is just 'MM/DD/YYYY'
+                parsed_date, err = parse_date_safe(details_raw)
+
             if parsed_date is None:
                 skipped_invalid_dates += 1
                 continue
 
-            direction = normalize_string(row.get("Direction") or "debit")
-            amount = coerce_amount(row.get("Amount"), direction)
+            # -------------- 2️⃣ Amount from Description column --------------
+            amount_raw = row.get("Description")
+            try:
+                amount = float(amount_raw)
+            except Exception:
+                # If amount isn't numeric, skip this row
+                skipped_invalid_dates += 1
+                continue
 
-            tx = Transaction(
+            # -------------- 3️⃣ Merchant text from Posting Date column --------------
+            merchant = normalize_string(row.get("Posting Date") or "")
+
+            # -------------- 4️⃣ Create transaction --------------
+            t = Transaction(
                 date=parsed_date,
-                source_system=normalize_string(row.get("Source")),
-                account_name=normalize_string(row.get("Account")),
-                direction=direction,
-                amount=amount,
-                merchant=normalize_string(row.get("Merchant")),
-                description=normalize_string(row.get("Description")),
-                category=normalize_string(row.get("Category")),
-                notes=normalize_string(row.get("Notes")),
+                merchant=merchant,
+                description=merchant,
+                amount=amount,  # already signed appropriately in CSV
+                account_name="Chase Checking (CSV)",
+                source_system="ChaseCSV",
+                category=None,
+                notes=None,
             )
-            db.session.add(tx)
+
+            db.session.add(t)
             imported += 1
 
         db.session.commit()
 
-        msg = f"Imported {imported} rows from CSV."
-        if skipped_invalid_dates:
-            msg += (
-                f" Skipped {skipped_invalid_dates} rows with invalid dates"
-                " (e.g. '2025-11-XX')."
-            )
+        msg = f"Imported {imported} rows from CSV. Skipped {skipped_invalid_dates} invalid rows."
         flash(msg, "success")
+
         return redirect(url_for("transactions"))
 
-    # GET
+    # GET request — show upload form
     return render_template("import_csv.html")
 
 
@@ -832,6 +907,19 @@ def update_transaction_json(txn_id):
         cat = (data["category"] or "").strip()
         tx.category = cat or None
 
+    # ---- AUTO-LEARNING: Remember user's chosen category ----
+    try:
+        if tx.category:
+            learn_category_from_transaction(
+                db,
+                merchant=tx.merchant,
+                account_name=tx.account_name,
+                method=tx.source_system,
+                chosen_category=tx.category,
+            )
+    except Exception as e:
+        app.logger.warning("Category learning failed for txn %s: %s", txn.id, e)
+
     if "notes" in data:
         notes = (data["notes"] or "").strip()
         tx.notes = notes or None
@@ -870,6 +958,128 @@ def update_transaction_json(txn_id):
             },
         }
     )
+
+# -------------------------------------------------------------------
+# API Guard + Delete Transaction Endpoint
+# -------------------------------------------------------------------
+import logging
+from functools import wraps
+from flask import jsonify
+
+def api_guard(fn):
+    """Simple safety wrapper for JSON routes."""
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            app.logger.exception("API ERROR in %s: %s", fn.__name__, e)
+            return jsonify({"error": "internal_error"}), 500
+    return wrapper
+
+
+@app.route("/api/transactions/<int:txn_id>", methods=["DELETE"])
+@api_guard
+def delete_transaction_json(txn_id):
+    """
+    Hard-delete a transaction.
+    Frontend can call:
+       fetch(`/api/transactions/${id}`, { method: "DELETE" })
+    """
+    tx = Transaction.query.get_or_404(txn_id)
+    app.logger.info("DELETE txn %s (%s, %s, %s)", tx.id, tx.date, tx.amount, tx.merchant)
+
+    db.session.delete(tx)
+    db.session.commit()
+
+    return jsonify({"status": "deleted", "id": txn_id})
+
+
+# -------------------------------------------------------------------
+# API: Get distinct categories for autocomplete / UI helpers
+# -------------------------------------------------------------------
+@app.route("/api/categories", methods=["GET"])
+@api_guard
+def get_categories():
+    """
+    Returns a sorted list of distinct categories.
+    Useful for:
+      - <datalist> autocomplete
+      - bulk-edit dropdowns
+      - analytics tools
+    """
+    rows = (
+        db.session.query(Transaction.category)
+        .filter(Transaction.category.isnot(None))
+        .distinct()
+        .all()
+    )
+
+    categories = sorted({(r[0] or "").strip() for r in rows if r[0]})
+    return jsonify({"categories": categories})
+
+
+# -------------------------------------------------------------------
+# API: Bulk update transactions (e.g. mass recategorize)
+# -------------------------------------------------------------------
+@app.route("/api/transactions/bulk", methods=["PUT"])
+@api_guard
+def bulk_update_transactions():
+    """
+    Bulk-update a set of transactions.
+
+    Expected JSON:
+    {
+      "ids": [1, 2, 3],
+      "fields": {
+        "category": "Groceries",
+        "notes": "Fixed via bulk"
+      }
+    }
+
+    Only "category" and "notes" are honored for now.
+    """
+    payload = request.get_json() or {}
+    ids = payload.get("ids") or []
+    fields = payload.get("fields") or {}
+
+    if not isinstance(ids, list) or not ids:
+        return jsonify({"error": "missing_or_invalid_ids"}), 400
+
+    # Normalize fields we support
+    new_category = None
+    new_notes = None
+
+    if "category" in fields:
+        new_category = (fields.get("category") or "").strip() or None
+
+    if "notes" in fields:
+        new_notes = (fields.get("notes") or "").strip() or None
+
+    if new_category is None and new_notes is None:
+        return jsonify({"error": "no_supported_fields"}), 400
+
+    # Apply updates
+    q = Transaction.query.filter(Transaction.id.in_(ids))
+    updated = 0
+    for tx in q:
+        if new_category is not None:
+            tx.category = new_category
+        if new_notes is not None:
+            tx.notes = new_notes
+        updated += 1
+
+    db.session.commit()
+
+    app.logger.info(
+        "BULK UPDATE %d transactions (ids=%s) fields=%r",
+        updated,
+        ids,
+        fields,
+    )
+
+    return jsonify({"status": "ok", "updated": updated})
+
 
 # ----------------------------
 # Run development server

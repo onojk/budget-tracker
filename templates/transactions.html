@@ -1,123 +1,270 @@
-
 {% extends "base.html" %}
+
 {% block content %}
-<h1>Transactions</h1>
-<p style="color:#0066cc;">Click any cell to edit • Press Enter or click away to save instantly</p>
+<div class="container">
+  <h1>Transactions</h1>
 
-<table class="table table-sm table-hover" id="txn-table">
-  <thead class="thead-dark">
-    <tr>
-      <th>Date</th>
-      <th>Merchant / Description</th>
-      <th style="text-align:right">Amount</th>
-      <th>Category</th>
-      <th>Notes</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for t in transactions %}
-    <tr data-id="{{ t.id }}">
-      <td class="editable" data-field="date">
-        {{ t.date.isoformat() if t.date else '' }}
-      </td>
-      <td class="editable" data-field="merchant">
-        {{ t.merchant or '' }}
-      </td>
-      <td class="editable" data-field="amount" style="text-align:right">
-        ${{ "%.2f" % t.amount if t.amount is not none else "0.00" }}
-      </td>
-      <td class="editable" data-field="category">
-        {{ t.category or 'Uncategorized' }}
-      </td>
-      <td class="editable" data-field="notes">
-        {{ t.notes or '' }}
-      </td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+  <p>
+    Showing <strong>{{ transactions|length }}</strong> transactions.
+    (Most recent first)
+  </p>
+<form method="get" id="txn-filter-form" style="margin-bottom:1rem; display:flex; flex-wrap:wrap; gap:0.75rem; align-items:flex-end;">
+  <label>
+    Category<br>
+    <input
+      type="text"
+      name="category"
+      value="{{ request.args.get('category','') }}"
+      style="min-width:140px;"
+    >
+  </label>
 
-<style>
-  .editable { cursor: pointer; padding: 6px 10px !important; border-radius: 4px; }
-  .editable:hover { background: #f0f8ff; }
-  .editing { background: #fff3cd !important; }
-</style>
+  <label>
+    From<br>
+    <input
+      type="date"
+      name="from"
+      value="{{ request.args.get('from','') }}"
+    >
+  </label>
+
+  <label>
+    To<br>
+    <input
+      type="date"
+      name="to"
+      value="{{ request.args.get('to','') }}"
+    >
+  </label>
+
+  <label>
+    Sort by<br>
+    <select name="sort">
+      <option value="date" {% if request.args.get('sort','date')=='date' %}selected{% endif %}>Date</option>
+      <option value="amount" {% if request.args.get('sort')=='amount' %}selected{% endif %}>Amount</option>
+    </select>
+  </label>
+
+  <label>
+    Direction<br>
+    <select name="dir">
+      <option value="desc" {% if request.args.get('dir','desc')=='desc' %}selected{% endif %}>Newest / Highest first</option>
+      <option value="asc"  {% if request.args.get('dir')=='asc' %}selected{% endif %}>Oldest / Lowest first</option>
+    </select>
+  </label>
+
+  <div>
+    <button type="submit" style="padding:0.35rem 0.9rem;">Apply</button>
+    <a href="{{ url_for('transactions') }}" style="margin-left:0.5rem;">Reset</a>
+  </div>
+</form>
+
+  <div class="table-wrapper" style="overflow-x:auto; max-height:70vh;">
+    <table class="txn-table" style="width:100%; border-collapse:collapse;">
+      <thead>
+        <tr>
+          <th style="border-bottom:1px solid #ccc; padding:4px;">ID</th>
+          <th style="border-bottom:1px solid #ccc; padding:4px;">Date</th>
+          <th style="border-bottom:1px solid #ccc; padding:4px;">Merchant</th>
+          <th style="border-bottom:1px solid #ccc; padding:4px;">Description</th>
+          <th style="border-bottom:1px solid #ccc; padding:4px;">Account</th>
+          <th style="border-bottom:1px solid #ccc; padding:4px;">Source</th>
+          <th style="border-bottom:1px solid #ccc; padding:4px; text-align:right;">Amount</th>
+          <th style="border-bottom:1px solid #ccc; padding:4px;">Category</th>
+          <th style="border-bottom:1px solid #ccc; padding:4px;">Notes</th>
+          <th style="border-bottom:1px solid #ccc; padding:4px;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for tx in transactions %}
+        <tr data-txn-id="{{ tx.id }}">
+          <td style="border-bottom:1px solid #eee; padding:4px; white-space:nowrap;">
+            {{ tx.id }}
+          </td>
+
+          <!-- Date -->
+          <td style="border-bottom:1px solid #eee; padding:4px;">
+            <input
+              type="date"
+              name="date"
+              class="txn-edit"
+              value="{{ tx.date.isoformat() if tx.date }}"
+              style="width: 140px;"
+            >
+          </td>
+
+          <!-- Merchant -->
+          <td style="border-bottom:1px solid #eee; padding:4px;">
+            <input
+              type="text"
+              name="merchant"
+              class="txn-edit"
+              value="{{ tx.merchant or '' }}"
+              style="width: 180px;"
+            >
+          </td>
+
+          <!-- Description (read-only for now; backend JSON endpoint doesn't handle it yet) -->
+          <td style="border-bottom:1px solid #eee; padding:4px; max-width:200px;">
+            {{ tx.description or '' }}
+          </td>
+
+          <!-- Account name (read-only) -->
+          <td style="border-bottom:1px solid #eee; padding:4px; white-space:nowrap;">
+            {{ tx.account_name or '' }}
+          </td>
+
+          <!-- Source system (read-only) -->
+          <td style="border-bottom:1px solid #eee; padding:4px; white-space:nowrap;">
+            {{ tx.source_system or '' }}
+          </td>
+
+          <!-- Amount -->
+          <td style="border-bottom:1px solid #eee; padding:4px; text-align:right; white-space:nowrap;">
+            <input
+              type="number"
+              step="0.01"
+              name="amount"
+              class="txn-edit"
+              value="{{ '%.2f'|format(tx.amount or 0.0) }}"
+              style="width: 110px; text-align:right;"
+            >
+          </td>
+
+          <!-- Category -->
+          <td style="border-bottom:1px solid #eee; padding:4px;">
+            <input
+              type="text"
+              name="category"
+              class="txn-edit txn-category"
+              value="{{ tx.category or '' }}"
+              list="category-options"
+              style="width: 140px;"
+            >
+          </td>
+
+          <!-- Notes -->
+          <td style="border-bottom:1px solid #eee; padding:4px; max-width:220px;">
+            <input
+              type="text"
+              name="notes"
+              class="txn-edit"
+              value="{{ tx.notes or '' }}"
+              style="width: 100%;"
+            >
+          </td>
+
+          <!-- Actions -->
+          <td style="border-bottom:1px solid #eee; padding:4px; white-space:nowrap;">
+            <button
+              type="button"
+              class="btn-delete-txn"
+              data-txn-id="{{ tx.id }}"
+              style="border:none; background:none; cursor:pointer;"
+              title="Delete transaction"
+            >
+              🗑
+            </button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Datalist for categories – populated via /api/categories -->
+  <datalist id="category-options"></datalist>
+</div>
 
 <script>
-document.addEventListener('DOMContentLoaded', () => {
-  document.querySelectorAll('.editable').forEach(cell => {
-    cell.addEventListener('click', function() {
-      if (this.querySelector('input')) return;
+// -------------------------
+// Inline editing via JSON
+// -------------------------
+document.addEventListener("change", async (event) => {
+  const input = event.target;
+  if (!input.classList.contains("txn-edit")) return;
 
-      const field = this.dataset.field;
-      let value = this.textContent.trim();
+  const row = input.closest("tr[data-txn-id]");
+  if (!row) return;
 
-      if (field === 'amount') {
-        value = value.replace('$', '').trim();
-      }
+  const id = row.dataset.txnId;
+  const field = input.name;
+  if (!id || !field) return;
 
-      const input = document.createElement('input');
-      input.value = value;
-      if (field === 'amount') {
-        input.type = 'number';
-        input.step = '0.01';
-      } else if (field === 'date') {
-        input.type = 'date';
-      } else {
-        input.type = 'text';
-      }
-      input.style.width = '100%';
+  const payload = {};
+  payload[field] = input.value;
 
-      this.textContent = '';
-      this.appendChild(input);
-      this.classList.add('editing');
-      input.focus();
-
-      const row = this.closest('tr');
-      const txnId = row.dataset.id;
-
-      const revert = () => {
-        this.innerHTML = value || '';
-        if (field === 'amount' && value) {
-          const num = parseFloat(value);
-          if (!isNaN(num)) {
-            this.innerHTML = '$' + num.toFixed(2);
-          }
-        }
-        this.classList.remove('editing');
-      };
-
-      const save = () => {
-        let newVal = input.value.trim();
-        if (field === 'amount') {
-          const num = parseFloat(newVal);
-          if (isNaN(num)) {
-            revert();
-            return;
-          }
-          newVal = num;
-          this.textContent = '$' + num.toFixed(2);
-        } else {
-          this.textContent = newVal || '';
-        }
-        this.classList.remove('editing');
-
-        fetch(`/api/transactions/${txnId}`, {
-          method: 'PUT',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ [field]: newVal })
-        }).catch(err => {
-          console.error('Update failed', err);
-        });
-      };
-
-      input.addEventListener('blur', save);
-      input.addEventListener('keydown', e => {
-        if (e.key === 'Enter') save();
-        if (e.key === 'Escape') revert();
-      });
+  try {
+    const res = await fetch(`/api/transactions/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
     });
-  });
+
+    if (!res.ok) {
+      console.error("Update failed", await res.text());
+      alert("Update failed.");
+    }
+  } catch (err) {
+    console.error("Update error", err);
+    alert("Update failed (network error).");
+  }
 });
+
+// -------------------------
+// Delete button
+// -------------------------
+document.addEventListener("click", async (event) => {
+  const btn = event.target.closest(".btn-delete-txn");
+  if (!btn) return;
+
+  const id = btn.dataset.txnId;
+  if (!id) return;
+
+  const ok = window.confirm("Delete this transaction?");
+  if (!ok) return;
+
+  try {
+    const res = await fetch(`/api/transactions/${id}`, {
+      method: "DELETE",
+    });
+
+    if (!res.ok) {
+      console.error("Delete failed", await res.text());
+      alert("Delete failed.");
+      return;
+    }
+
+    // Remove row from table without reloading
+    const row = document.querySelector(`tr[data-txn-id="${id}"]`);
+    if (row) row.remove();
+  } catch (err) {
+    console.error("Delete error", err);
+    alert("Delete failed (network error).");
+  }
+});
+
+// -------------------------
+// Load category options for autocomplete (if endpoint exists)
+// -------------------------
+(async function loadCategories() {
+  try {
+    const res = await fetch("/api/categories");
+    if (!res.ok) return;  // silently ignore if 404 / not implemented
+
+    const data = await res.json();
+    const categories = data.categories || [];
+    const dl = document.getElementById("category-options");
+    if (!dl) return;
+
+    categories.forEach((cat) => {
+      const opt = document.createElement("option");
+      opt.value = cat;
+      dl.appendChild(opt);
+    });
+  } catch (err) {
+    console.warn("Could not load categories", err);
+  }
+})();
 </script>
 {% endblock %}
