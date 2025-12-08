@@ -43,3 +43,4 @@ budget_app_backup_*.tar.gz
 *.zip
 old1/
 uploads/statements/
+.venv/
