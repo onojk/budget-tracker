@@ -984,18 +984,27 @@ def api_guard(fn):
 @app.route("/api/transactions/<int:txn_id>", methods=["DELETE"])
 @api_guard
 def delete_transaction_json(txn_id):
-    """
-    Hard-delete a transaction.
-    Frontend can call:
-       fetch(`/api/transactions/${id}`, { method: "DELETE" })
-    """
-    tx = Transaction.query.get_or_404(txn_id)
-    app.logger.info("DELETE txn %s (%s, %s, %s)", tx.id, tx.date, tx.amount, tx.merchant)
+    tx = db.session.get(Transaction, txn_id)
+    if tx is None:
+        return jsonify({"error": "not found"}), 404
 
+    # Null out the back-reference on any transfer partner that points at this
+    # transaction, so we don't leave a dangling linked_transaction_id FK.
+    partners = (
+        db.session.query(Transaction)
+        .filter(Transaction.linked_transaction_id == txn_id)
+        .all()
+    )
+    for partner in partners:
+        partner.linked_transaction_id = None
+
+    app.logger.info(
+        "DELETE txn %s (%s %s %s)", tx.id, tx.date, tx.amount, tx.merchant
+    )
     db.session.delete(tx)
     db.session.commit()
 
-    return jsonify({"status": "deleted", "id": txn_id})
+    return jsonify({"deleted": True, "id": txn_id})
 
 
 # -------------------------------------------------------------------
