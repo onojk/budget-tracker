@@ -1,0 +1,21 @@
+# Web framework
+Flask>=3.0
+Flask-SQLAlchemy>=3.1
+Flask-WTF>=1.2
+WTForms>=3.1
+python-dotenv>=1.0
+
+# Database / ORM
+SQLAlchemy>=2.0
+
+# Data processing
+pandas>=2.1
+python-dateutil>=2.8
+
+# PDF & OCR (optional but used by ocr_pipeline.py and import scripts)
+# Tesseract itself must be installed at the system level:
+#   macOS:   brew install tesseract
+#   Ubuntu:  sudo apt-get install tesseract-ocr
+pdfplumber>=0.10
+pytesseract>=0.3.10
+Pillow>=10.0

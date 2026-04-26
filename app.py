@@ -6,6 +6,9 @@ from pathlib import Path
 from datetime import datetime, date, timedelta
 from collections import OrderedDict
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from flask import (
     Flask,
     render_template,

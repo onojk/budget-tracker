@@ -17,6 +17,8 @@ uploads/
 *.jpg
 *.jpeg
 *.txt
+# But do track requirements files
+!requirements*.txt
 
 # Database (contains actual transactions)
 *.db
