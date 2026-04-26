@@ -918,7 +918,7 @@ def update_transaction_json(txn_id):
                 chosen_category=tx.category,
             )
     except Exception as e:
-        app.logger.warning("Category learning failed for txn %s: %s", txn.id, e)
+        app.logger.warning("Category learning failed for txn %s: %s", tx.id, e)
 
     if "notes" in data:
         notes = (data["notes"] or "").strip()
