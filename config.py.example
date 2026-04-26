@@ -1,0 +1,37 @@
+"""
+Configuration template for the Budget Tracker app.
+
+Copy this file to config.py and customize for your environment.
+config.py is gitignored because it can hold secrets.
+
+Usage:
+    cp config.py.example config.py
+"""
+
+import os
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent
+
+
+class Config:
+    # Flask
+    SECRET_KEY = os.environ.get("SECRET_KEY", "change-me-in-production")
+
+    # SQLAlchemy
+    SQLALCHEMY_DATABASE_URI = os.environ.get(
+        "DATABASE_URL",
+        f"sqlite:///{BASE_DIR / 'budget.db'}",
+    )
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
+
+    # Uploads
+    UPLOAD_FOLDER = str(BASE_DIR / "uploads")
+    MAX_CONTENT_LENGTH = 32 * 1024 * 1024  # 32 MB
+
+    # OCR / parsing
+    # Path to tesseract binary if not on $PATH (e.g. "/opt/homebrew/bin/tesseract")
+    TESSERACT_CMD = os.environ.get("TESSERACT_CMD")
+
+    # Date floor for transaction imports
+    MIN_ALLOWED_DATE = "2024-01-01"
