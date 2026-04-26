@@ -1,10 +1,12 @@
 # Python
 __pycache__/
 *.pyc
+*.pyo
 
-# Virtual environment
+# Virtual environments
 env/
 venv/
+.venv/
 budget-env/
 
 # Uploads (contains sensitive data)
@@ -18,29 +20,35 @@ uploads/
 
 # Database (contains actual transactions)
 *.db
+*.sqlite
+*.sqlite3
 
 # Secrets
 config.py
+.env
 *.env
 
 # IDE files
 .vscode/
 .idea/
+.DS_Store
 
-# Backup and temp files
+# Backup, temp, and patch files
 *.bak*
+*.patch
 backups_ocr_upgrade/
-os
-pd
-*.sh
+backup_before_premium_*/
+backup_final_bomb_*/
 
-# Local backup archives – do NOT commit
-budget_app_backup_*.tar.gz
+# Local backup archives
 *.tar.gz
-
-# Never commit bank statements or local archive folders
-*.pdf
 *.zip
+
+# Old / archived experiments — keep out of active dev
 old1/
-uploads/statements/
-.venv/
+archive/
+
+# Test cache
+.pytest_cache/
+.coverage
+htmlcov/

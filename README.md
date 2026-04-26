@@ -1,235 +1,137 @@
-🧮 Budget Tracker
+# 🧮 Budget Tracker
 
-A clean, fast, open-source personal budgeting tool with real-time inline editing.
+A clean, fast, open-source personal budgeting tool with real-time inline
+editing, built on Flask + SQLite.
 
-✨ Overview
+## Features
 
-Budget Tracker is a lightweight, developer-friendly Flask app that helps you manage your personal finances with clarity and speed. It includes a dashboard for quick insights, a transaction manager, import support, and now true inline editing right inside the transactions table — no page reload required.
+- **Transactions** — add, view, sort, categorize, with click-to-edit cells in
+  the transactions table (saves via `PUT /api/transactions/<id>`, no reload)
+- **Dashboard** — income, expenses, net totals; daily / weekly / monthly views
+- **Imports**
+  - CSV (banks, credit cards, Venmo)
+  - PDF statements via `pdfplumber`
+  - Screenshots / images via `tesseract` OCR
+- **Auto-categorization** — rule-based, learns from past assignments
+- **Transfer reconciliation** — links mirrored debit/credit pairs across accounts
 
-This project prioritizes:
+## Stack
 
-⏱ Speed
+- **Backend:** Flask, SQLAlchemy, WTForms
+- **Database:** SQLite (default), any SQLAlchemy-supported DB
+- **Frontend:** Jinja2 + vanilla JS + htmx
+- **Imports:** pandas, pdfplumber, pytesseract
 
-🧽 Simplicity
+## Setup
 
-📊 Transparency
-
-🔧 A codebase that’s easy to modify or extend
-
-🚀 Features
-🧾 Transaction Management
-
-Add, view, sort, and categorize transactions
-
-Import workflow (CSV / OCR integrations optional)
-
-Real-time inline editing (click a cell, edit instantly)
-
-Amount validation
-
-Auto-update JSON API
-
-Category + notes editing
-
-📊 Dashboard
-
-Income, expenses, and net totals
-
-Trendline-ready API endpoints
-
-Daily / weekly / monthly insights
-
-Clean UI using standard HTML + JS
-
-⚙️ Technical Stack
-
-Backend: Flask + SQLAlchemy
-
-Database: SQLite by default
-
-Frontend: HTML, CSS, Jinja, vanilla JavaScript
-
-Live Editing: Custom inline editor + REST API (PUT /api/transactions/<id>)
-
-📦 Installation
-1 — Clone the repository
+```bash
 git clone https://github.com/onojk/budget-tracker.git
 cd budget-tracker
 
-2 — Create a virtual environment
-python3 -m venv budget-env
-source budget-env/bin/activate
+python3 -m venv .venv
+source .venv/bin/activate
 
-3 — Install dependencies
 pip install -r requirements.txt
 
+cp config.py.example config.py
+cp .env.example .env
+# edit .env to set a real SECRET_KEY
 
-Or manually:
-
-pip install flask sqlalchemy
-
-4 — Run the application
 python app.py
+# → http://127.0.0.1:5000
+```
 
+The SQLite database is created automatically on first run.
 
-Go to:
+### Optional: OCR support
 
-http://127.0.0.1:5000/
+For PDF statements and screenshot imports, install Tesseract at the system
+level:
 
-⚡ Inline Editing (New)
+```bash
+# macOS
+brew install tesseract
 
-The Transactions page supports true inline editing via a JSON API.
-Click any cell in the table to edit:
+# Ubuntu / Debian
+sudo apt-get install tesseract-ocr
+```
 
-Date
+## Project structure
 
-Merchant
+```
+.
+├── app.py                  # Flask app, routes, API
+├── models.py               # SQLAlchemy models
+├── config.py.example       # → copy to config.py
+├── ocr_pipeline.py         # PDF + screenshot ingestion
+├── categorizer.py          # auto-categorization rules
+├── direction_rules.py      # debit/credit direction inference
+├── chase_amount_utils.py   # Chase-specific parsing
+├── capitalone_validator.py # Capital One validation
+├── parsers/                # per-source parsers (Venmo, …)
+├── templates/              # Jinja2 templates
+├── static/                 # CSS, JS, htmx
+├── scripts/                # one-off CLI utilities (imports, dedup, etc.)
+└── archive/                # historical experiments (gitignored)
+```
 
-Description
+## REST API
 
-Amount
+| Method | Path                       | Description                       |
+| ------ | -------------------------- | --------------------------------- |
+| GET    | `/api/transactions?limit=N`| Latest transactions               |
+| GET    | `/api/summary`             | Totals for dashboard panels       |
+| PUT    | `/api/transactions/<id>`   | Update one or more fields         |
 
-Category
+Example inline-edit request:
 
-Notes
-
-Press Enter or click away to save.
-The backend updates instantly through:
-
-PUT /api/transactions/<id>
-
-
-Example request sent via JS:
-
+```json
 {
   "amount": 42.19,
   "category": "Dining",
   "notes": "Corrected value"
 }
+```
 
-📁 Project Structure
-budget_tracker/
-│
-├── app.py                      # Flask app, routes, API, inline edit handler
-├── models.py                   # SQLAlchemy ORM models
-│
-├── templates/
-│   ├── base.html               # global layout
-│   ├── dashboard.html          # summary + charts
-│   ├── transactions.html       # inline editing UI
-│   └── partials/               # optional components
-│
-├── static/
-│   ├── styles.css              # site styling
-│   └── dashboard.js            # AJAX dashboard fetchers
-│
-├── budget-env/                 # virtual environment
-└── README.md
+## Data model
 
-🔌 REST API
-GET /api/transactions?limit=N
+`Transaction` fields: `id`, `date`, `merchant`, `description`, `amount`,
+`category`, `notes`, `source_system`, `account_name`, `direction`,
+`is_transfer`, `linked_transaction_id`, `file_checksum`, `source_filename`.
 
-Returns latest transactions.
+Conventions:
 
-GET /api/summary
+- Dates before `2024-01-01` are rejected on import.
+- Debits are stored as negative amounts; credits as positive.
 
-Returns totals for dashboard panels.
+## Scripts
 
-PUT /api/transactions/<id>
+`scripts/` contains CLI utilities you'll occasionally need:
 
-Updates a single transaction field.
-Returns updated transaction object.
+- `import_credit_card_csv.py` — import a credit-card CSV
+- `import_all_pdfs_to_db.py` — bulk import PDF statements
+- `import_screenshots_now.py` — bulk import OCR'd screenshots
+- `dedupe_transactions.py` — remove duplicate transactions
+- `reconcile_transfers.py` — link mirrored transfers
+- `validate_statement_balances.py` — sanity-check imported totals
+- `hard_reset_budget_data.py` — wipe all transactions ⚠️ destructive
 
-🧠 Data Model
+Several scripts are destructive. Read them before running.
 
-Transaction includes:
+## Roadmap
 
-id
+**Near-term:** sort/filter UI, category autocomplete, delete-transaction
+button, bulk-edit selections.
 
-date
+**Mid-term:** budget envelopes, monthly alerts, CSV import mapping wizard.
 
-merchant
+**Long-term:** multi-user, mobile-responsive UI, cloud sync + backup.
 
-description
+## Contributing
 
-amount
+PRs welcome. Fork, branch, run locally, submit. There aren't tests yet —
+adding `pytest` would be a great first contribution.
 
-category
+## License
 
-notes
-
-import_source
-
-checksum
-
-created_at
-
-SQLite auto-creates the schema at first run.
-
-🧭 Roadmap
-Near-term
-
-Sorting + Filtering UI
-
-Category autocomplete
-
-Delete transaction button
-
-Bulk-edit selections
-
-Mid-term
-
-Budget envelopes
-
-Monthly alerts
-
-CSV importer with mapping wizard
-
-Long-term
-
-Multi-user support
-
-Responsive mobile UI
-
-Cloud sync + backup
-
-🤝 Contributing
-
-Pull requests welcome!
-
-To contribute:
-
-Fork the repository
-
-Create a feature branch
-
-Run tests + local build
-
-Submit a PR
-
-📜 License — MIT
-MIT License
-
-Copyright (c) 2025 TEST USER
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-⭐ Acknowledgments
-
-Developed by ONOJK123 (TEST USER) — combining clean engineering, data accuracy, and UX polish into a compact personal finance tool.
+MIT — © 2025 TEST USER. See `LICENSE`.
