@@ -1,0 +1,55 @@
+                                      www.citicards.com                                           Costco Anywhere Visa® Card by Citi
+                                                                                   Member Since 2025. Account number ending in: 9999
+
+          FEBRUARY STATEMENT
+          Billing Period: 01/10/26-02/07/26
+
+          New balance as of 02/07/26:                                              $485.00
+
+          Minimum payment due:                                                       $41.00
+
+          Payment due date:                                                     03/05/26
+
+                                                                                                        Account Summary
+                                                                                                        Previous balance                                           $500.00
+                                                                                                        Payments                                                  -$100.00
+                                                                                                        Credits                                                     -$0.00
+                                                                                                        Purchases                                                  +$50.00
+                                                                                                        Cash advances                                              +$0.00
+                                                                                                        Fees                                                      +$25.00
+                                                                                                        Interest                                                   +$10.00
+                                                                                                        New balance                                               $485.00
+
+
+         TEST USER
+
+
+         CARDHOLDER SUMMARY
+         TEST USER                                                                                                                          Card ending in 9999
+         New Charges                                                                                                                                              $50.00
+
+
+         ACCOUNT SUMMARY
+         Sale              Post
+         Date              Date               Description                                                                                                         Amount
+         Payments, Credits and Adjustments
+                           01/20              ONLINE PAYMENT, THANK YOU                                                                                          -$100.00
+
+         Standard purchases
+         01/15             01/16              COSTCO WHOLESALE #1234 VISTA CA                                                                                     $50.00
+
+         Fees Charged
+         01/25                                LATE FEE                                                                                                            $25.00
+         TOTAL FEES FOR THIS PERIOD                                                                                                                              $25.00
+255700
+
+
+         Interest Charged
+         Date                                 Description                                                                                                         Amount
+         02/07                                INTEREST CHARGED TO STANDARD PURCH                                                                                  $10.00
+         TOTAL INTEREST FOR THIS PERIOD                                                                                                                           $10.00
+
+
+         2026 totals year-to-date
+         Total fees charged in 2026                                                                                                                              $25.00
+         Total interest charged in 2026                                                                                                                          $10.00
