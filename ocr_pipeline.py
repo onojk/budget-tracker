@@ -1639,6 +1639,20 @@ def process_uploaded_statement_files(uploads_dir, statements_dir):
             raw_text = txt.read_text(errors="replace")
         except Exception:
             raw_text = ""
+        # PayPal Cashback Mastercard detection — check before CareCredit/Citi/CapOne/BoA/Chase.
+        # Regular PayPal account statements use "ACCOUNT STATEMENTS"/"PayPal Account ID" —
+        # they never contain "Transaction details", so this signature is mutually exclusive.
+        if "paypal.com" in raw_text and "Transaction details" in raw_text:
+            try:
+                from parsers.paypal_pdf_parser import parse_paypal_statement_text
+                paypal_rows, _pp_meta = parse_paypal_statement_text(raw_text, txt.name)
+            except Exception as e:
+                print(f"[OCR] PayPal parse failed for {txt}: {e}")
+                paypal_rows = []
+            if paypal_rows:
+                all_rows.extend(paypal_rows)
+                continue
+
         # CareCredit PDF detection — check before Citi/CapOne/BoA/Chase.
         if "CARECREDIT REWARDS MASTERCARD" in raw_text and "synchrony.com" in raw_text:
             try:

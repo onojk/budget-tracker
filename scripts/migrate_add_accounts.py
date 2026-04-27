@@ -27,6 +27,7 @@ SEED_ACCOUNTS = [
     {"name": "CapOne Quicksilver 7398", "institution": "Capital One",  "last4": "7398"},
     {"name": "Citi Costco Anywhere Visa",          "institution": "Citibank",       "last4": "2557"},
     {"name": "CareCredit Rewards Mastercard",       "institution": "Synchrony Bank", "last4": "7649"},
+    {"name": "PayPal Cashback Mastercard",          "institution": "Synchrony Bank", "last4": "9868"},
 ]
 
 with app.app_context():
