@@ -1639,6 +1639,18 @@ def process_uploaded_statement_files(uploads_dir, statements_dir):
             raw_text = txt.read_text(errors="replace")
         except Exception:
             raw_text = ""
+        # CareCredit PDF detection — check before Citi/CapOne/BoA/Chase.
+        if "CARECREDIT REWARDS MASTERCARD" in raw_text and "synchrony.com" in raw_text:
+            try:
+                from parsers.carecredit_pdf_parser import parse_carecredit_statement_text
+                carecredit_rows, _cc_meta = parse_carecredit_statement_text(raw_text, txt.name)
+            except Exception as e:
+                print(f"[OCR] CareCredit parse failed for {txt}: {e}")
+                carecredit_rows = []
+            if carecredit_rows:
+                all_rows.extend(carecredit_rows)
+                continue
+
         # Citi PDF detection — check before CapOne/BoA/Chase.
         if "citicards.com" in raw_text and "Previous balance" in raw_text:
             try:
