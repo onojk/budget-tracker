@@ -69,7 +69,7 @@ _TXN_RE = re.compile(
     r'^(\d{2}/\d{2}/\d{4})\s+(\d{2}/\d{2}/\d{4})\s+'
     r'(?:[A-Z0-9]{10,}\s+)?'         # optional reference number
     r'(.+?)\s{2,}'                    # description (non-greedy, 2+ space delimiter)
-    r'(\(\$?[\d,]+\.\d{2}\)|[\d,]+\.\d{2})\s*$'  # parenthesized or plain amount
+    r'(\(\$?[\d,]+\.\d{2}\)|\$?[\d,]+\.\d{2})\s*$'  # parenthesized or plain amount
 )
 
 # Stop phrases (checked case-insensitively against stripped line)
