@@ -22,6 +22,7 @@ uploads/
 !tests/fixtures/*.txt
 
 # Database (contains actual transactions)
+instance/
 *.db
 *.sqlite
 *.sqlite3

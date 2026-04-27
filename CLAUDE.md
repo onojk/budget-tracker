@@ -21,7 +21,9 @@ python app.py                         # http://127.0.0.1:5000
 ```
 
 The SQLite DB is created automatically on first run via `db.create_all()`
-inside `app.py`.
+inside `app.py`. It lives at `instance/budget.db` (Flask resolves the
+`sqlite:///budget.db` URI relative to its instance folder, not the project
+root). The `instance/` directory is gitignored.
 
 ## Layout
 
