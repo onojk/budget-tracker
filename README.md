@@ -134,4 +134,4 @@ adding `pytest` would be a great first contribution.
 
 ## License
 
-MIT — © 2025 TEST USER. See `LICENSE`.
+MIT — © 2025 the author. See `LICENSE`.

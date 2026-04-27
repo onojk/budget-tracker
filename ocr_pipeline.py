@@ -596,15 +596,18 @@ def _parse_capone_0728_statement(txt_path):
         r"([A-Za-z]{3,9})\s+(\d{1,2})\s+"
         r"(.+?)\s+(-?\s*\$?\d[\d,]*\.\d{2})\s*$"
     )
+    # Matches "ANY ALL-CAPS NAME #XXXX: Payments..." or "...#XXXX: Transactions"
+    # so this works for any cardholder without hardcoding a name.
+    _section_re = re.compile(
+        r'^[A-Z][A-Z\s.]+\s+#\d{4}:\s+(Payments|Transactions)'
+    )
 
     for raw in lines:
         s = raw.strip()
 
-        if "TEST USER #0728: Payments, Credits and Adjustments" in s:
-            mode = "payments"
-            continue
-        if "TEST USER #0728: Transactions" in s:
-            mode = "spend"
+        _sm = _section_re.match(s)
+        if _sm:
+            mode = "payments" if _sm.group(1) == "Payments" else "spend"
             continue
         if not mode:
             continue

@@ -97,12 +97,12 @@ def test_zelle_payment_from_is_credit(tmp_path):
     ocr = _build_ocr(
         "December 13, 2025 through January 15, 2026",
         [
-            "12/30  Zelle Payment From TEST USER Dfs09B41Uzmt  755.00  1090.35",
+            "12/30  Zelle Payment From Test A User Abc12B34Wxyz  755.00  1090.35",
         ],
     )
     rows = _parse(tmp_path, ocr)
     assert rows, "parser returned no rows"
-    r = _row(rows, "TEST")
+    r = _row(rows, "User")
     assert r["Amount"] > 0, (
         f"Zelle Payment From must be a credit (+); got {r['Amount']}"
     )
@@ -220,7 +220,7 @@ def test_closed_ledger_reconciliation(tmp_path):
             "08/15  08/15 Online Transfer To Sav ...9383 Transaction#: 25864  -420.00  1469.19",
             "08/29  Paypal Inst Xfer Ppcr Cc Repayme Web ID: Paypalsi77  -29.00  1440.19",
             "09/09  Ebay Compduytyu6 Payments Qmiehcptxceev6G CCD ID: 1618  135.67  1575.86",
-            "09/12  Zelle Payment From TEST USER Dfs09B41Uzmt  755.00  2330.86",
+            "09/12  Zelle Payment From Test A User Abc12B34Wxyz  755.00  2330.86",
             "09/15  Card Purchase 09/14 7-Eleven Oceanside CA Card 9241  -6.30  2324.56",
             "09/15  Online Transfer From Sav ...9383 Transaction#: 25896  500.00  2824.56",
         ],

@@ -25,7 +25,7 @@
 
 
          CARDHOLDER SUMMARY
-         TEST USER                                                                                                                          Card ending in 9999
+         TEST USER                                                                                                                                   Card ending in 9999
          New Charges                                                                                                                                              $50.00
 
 

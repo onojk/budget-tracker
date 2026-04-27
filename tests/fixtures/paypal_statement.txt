@@ -33,7 +33,7 @@ New balance as of 01/31/2026                                                    
 
                                                                TEST USER
                                                                [ADDRESS]
-                                                               [CITY] [STATE] [ZIP]-6475                                                                                Make payment to: PAYPAL CREDIT SVCS/SYNCB
+                                                               [CITY] [STATE] [ZIP]                                                                               Make payment to: PAYPAL CREDIT SVCS/SYNCB
                                                                                                                                                                                                                                                       PO BOX 71718
                                                                                                                                                                                                                                                       PHILADELPHIA, PA 19176-1718
 
