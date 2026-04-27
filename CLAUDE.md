@@ -61,9 +61,11 @@ run from the project root with the venv active. Common ones:
 - `import_credit_card_csv.py` — import a credit-card CSV
 - `import_all_pdfs_to_db.py` — bulk import PDF statements
 - `import_screenshots_now.py` — bulk import OCR'd screenshots
+- `import_new_statements.py` — targeted import of specific PDFs with per-statement reconciliation report
 - `dedupe_transactions.py` — remove duplicate transactions
 - `reconcile_transfers.py` — link mirrored transfers between accounts
 - `validate_statement_balances.py` — check imported totals vs statement totals
+- `correct_wrong_sign_rows_2026_04_27.py` — one-shot data correction (idempotent): 10 sign flips, 2 dedup inserts, 7 date fixes; see script header for root-cause docs
 - `hard_reset_budget_data.py` — wipe all transactions (destructive)
 
 Several of these are destructive. Read before running.
@@ -170,9 +172,65 @@ Near-term: sort/filter UI, category autocomplete, delete-transaction button,
 bulk-edit. Mid-term: budget envelopes, monthly alerts, CSV import wizard.
 Long-term: multi-user, mobile responsive, cloud sync.
 
+## Known parser quirks / data-integrity patterns
+
+These bugs were identified and corrected 2026-04-27 during reconciliation of 25
+statements (10 Chase × 2 accounts, 9 BoA). Full audit trail in
+`scripts/correct_wrong_sign_rows_2026_04_27.py`.
+
+### Bug class A — Sign-inference keyword mis-fire (Chase, FIXED)
+
+`_parse_chase_transaction_detail` previously called `parse_signed_amount()` which
+scores `DEBIT_HINT_WORDS` / `CREDIT_HINT_WORDS` against the description. The word
+`"payment"` fired on "eBay Compduytyu6 **Payments**" and "Zelle **Payment** From"
+(both credits); `"purchase"` fired on "Card **Purchase** Return" (also a credit).
+
+**Fix (commit 7eedb19):** Chase parser now trusts the explicit sign in the amount
+column (`-` prefix = debit, no prefix = credit) and skips keyword scoring entirely.
+Regression tests in `tests/test_chase_sign_inference.py`.
+
+This vulnerability likely exists in other parsers that call `parse_signed_amount()`
+(BoA, PayPal CC, etc.). Watch for it when reconciliation gaps appear as credits
+stored negative.
+
+### Bug class B — Dedup collision on same-day identical transactions
+
+The dedup key is `(date, amount, merchant, account_name)`. Two genuinely separate
+transactions sharing all four fields are treated as one. Observed for:
+- Same-day Venmo/Real-Time-Transfer credits from different senders (same truncated
+  merchant name, different amounts are not a problem — it's same amounts that collide)
+- Same-day identical Card Purchase Returns from the same retailer
+
+When the first transaction was also stored with wrong sign (Bug A), the second
+arrived with the same wrong sign and was silently dropped. After fixing the first
+row's sign, the second is still missing. **Detection:** reconciliation gap equals
+exactly the missing amount. **Fix:** manual `INSERT` after verifying in OCR text
+that two distinct entries exist (confirmed via running balance).
+
+### Bug class C — Year-inference error at year-boundary statements (Chase Savings, data corrected)
+
+Chase statements spanning two calendar years (e.g., Dec 2025 – Jan 2026) use
+two-digit month/day dates without an explicit year. When the savings account section
+is parsed after the checking section has already processed January dates, the
+year-rollover logic assigned the end-year (2026) to December savings transactions
+that should be in the start-year (2025).
+
+**Data corrected 2026-04-27:** 7 Chase Savings rows (ids 1697–1703) re-dated from
+`2026-12-xx` to `2025-12-xx`. **Parser fix deferred:** the year-inference logic in
+`_parse_chase_transaction_detail` should anchor December dates to the start-year
+when the statement end-month is January. Apply this fix before importing any future
+cross-year Chase statements.
+
+### Reconciliation state after 2026-04-27 corrections
+
+All 25 imported statements close to $0.00:
+- 10 Chase statements × 2 accounts (Checking + Savings): 20/20 OK
+- 9 BoA statements: 9/9 OK
+- Total transactions in DB: 2795
+
 ## Testing
 
-143 tests across 9 files, all passing. Run with:
+151 tests across 10 files, all passing. Run with:
 
 ```bash
 .venv/bin/pytest -v
@@ -182,6 +240,7 @@ Test files:
 - `tests/test_smoke.py` — Flask routes and API contract
 - `tests/test_transactions.py` — delete endpoint, transfer unlinking
 - `tests/test_sign_inference.py` — debit/credit sign inference edge cases
+- `tests/test_chase_sign_inference.py` — 8 Chase-specific sign tests (regression for Bug A above)
 - `tests/test_ocr_pipeline.py` — Chase parser, merchant extraction, routing
 - `tests/test_boa_parser.py` — BoA parser, explicit-negative amounts, routing
 - `tests/test_venmo_parser.py` — Venmo CSV parser, skip logic, dedup, reconciliation
