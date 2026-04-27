@@ -1,7 +1,53 @@
 """
 Smoke tests and bug-regression tests for the budget tracker Flask app.
 """
-from datetime import date
+from datetime import date, timedelta
+
+
+# ---------------------------------------------------------------------------
+# Account model — structural tests for statement balance fields
+# ---------------------------------------------------------------------------
+
+def test_account_statement_balance_fields_accept_values(app):
+    from decimal import Decimal
+    from models import db, Account
+
+    with app.app_context():
+        acct = Account(
+            name="Test Bank Structural",
+            institution="Test Bank",
+            last4="0000",
+            last_statement_balance=Decimal("1234.56"),
+            last_statement_date=date(2026, 3, 31),
+        )
+        db.session.add(acct)
+        db.session.commit()
+        fetched = db.session.get(Account, acct.id)
+        assert fetched.last_statement_balance == Decimal("1234.56")
+        assert fetched.last_statement_date == date(2026, 3, 31)
+        db.session.delete(fetched)
+        db.session.commit()
+
+
+def test_account_days_since_last_statement(app):
+    from models import Account
+
+    with app.app_context():
+        stmt_date = date.today() - timedelta(days=12)
+        acct = Account(
+            name="__days_test__",
+            institution="Test",
+            last_statement_date=stmt_date,
+        )
+        assert acct.days_since_last_statement == 12
+
+
+def test_account_days_since_last_statement_none_when_date_unset(app):
+    from models import Account
+
+    with app.app_context():
+        acct = Account(name="__no_date__", institution="Test")
+        assert acct.days_since_last_statement is None
 
 
 def test_root_redirects_to_dashboard(client):

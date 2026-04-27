@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from flask_sqlalchemy import SQLAlchemy
 
 db = SQLAlchemy()
@@ -11,8 +11,16 @@ class Account(db.Model):
     name = db.Column(db.String(64), nullable=False, unique=True)
     institution = db.Column(db.String(64), nullable=False)
     last4 = db.Column(db.String(4), nullable=True)
+    last_statement_balance = db.Column(db.Numeric(12, 2), nullable=True)
+    last_statement_date = db.Column(db.Date, nullable=True)
 
     transactions = db.relationship("Transaction", back_populates="account", lazy="select")
+
+    @property
+    def days_since_last_statement(self):
+        if self.last_statement_date is None:
+            return None
+        return (date.today() - self.last_statement_date).days
 
     def __repr__(self):
         return f"<Account {self.institution} ...{self.last4}>"
