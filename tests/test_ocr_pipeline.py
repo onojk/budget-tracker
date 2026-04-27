@@ -20,7 +20,8 @@ def test_parse_chase_transaction_detail_extracts_rows():
 
     rows = _parse_chase_transaction_detail(FIXTURE)
 
-    # Fixture has 4 real transaction lines (Beginning Balance is skipped).
+    # Fixture has 2 blocks: 2 transactions in block 1, 2 in block 2 = 4 total.
+    # Beginning Balance line is skipped. Pre-fix: only 2 rows (block 1 only).
     assert len(rows) == 4, f"Expected 4 rows, got {len(rows)}: {rows}"
 
     # Row 0: debit grocery purchase
