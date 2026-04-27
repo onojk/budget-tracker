@@ -41,7 +41,8 @@ categorizer.py            Rule-based auto-categorization
 direction_rules.py        Debit/credit direction inference
 chase_amount_utils.py     Chase-specific amount parsing quirks
 capitalone_validator.py   Capital One statement validation
-parsers/                  Per-source parsers (currently: venmo)
+parsers/                  Per-source parsers: venmo_csv_parser.py,
+                          capitalone_pdf_parser.py
 templates/                Jinja2 templates
 static/                   styles.css, dashboard.js, htmx.min.js
 scripts/                  One-off CLI utilities (see below)
@@ -88,6 +89,9 @@ PUT  /api/transactions/<id>           Update one field on a transaction
   - **BoA Adv Plus** — Bank of America, last-4 0205
   - **Chase Checking** — JPMorgan Chase, last-4 9765
   - **Chase Savings** — JPMorgan Chase, last-4 9383
+  - **Venmo** — Venmo, no last-4
+  - **CapOne Platinum 0728** — Capital One, last-4 0728
+  - **CapOne Quicksilver 7398** — Capital One, last-4 7398
   Adding a new account: insert a row into the `account` table (or extend
   `migrate_add_accounts.py`) before importing statements for that account.
 
@@ -108,6 +112,10 @@ PUT  /api/transactions/<id>           Update one field on a transaction
 
 - **Chase / BoA**: closed ledgers — `sum(imported) == ending − beginning` to the
   cent. Any deviation is a parser bug.
+- **Capital One**: closed ledgers — `sum(imported) == prev − new` to the
+  cent. Parser imports purchases (negative), payments (positive), fees
+  (negative), and a synthetic interest row (negative, dated to closing date).
+  Any deviation is a parser bug.
 - **Venmo**: NOT a closed ledger. The CSV omits internal Venmo adjustments
   (deferred settlements, card pre-auth, overdraft handling). Gaps of $20–$150
   per statement are expected:
@@ -135,7 +143,7 @@ Long-term: multi-user, mobile responsive, cloud sync.
 
 ## Testing
 
-43 tests across 6 files, all passing. Run with:
+60 tests across 7 files, all passing. Run with:
 
 ```bash
 .venv/bin/pytest -v
@@ -148,6 +156,8 @@ Test files:
 - `tests/test_ocr_pipeline.py` — Chase parser, merchant extraction, routing
 - `tests/test_boa_parser.py` — BoA parser, explicit-negative amounts, routing
 - `tests/test_venmo_parser.py` — Venmo CSV parser, skip logic, dedup, reconciliation
+- `tests/test_capitalone_parser.py` — Capital One PDF parser, sign rules,
+  merchant cleaning, interest synthesis, closed-ledger reconciliation
 
 Synthetic fixtures live in `tests/fixtures/`. Tests use an in-memory SQLite
 database via `DATABASE_URL` set in `tests/conftest.py` — no live DB is touched.
