@@ -96,3 +96,63 @@ def test_boa_router_detects_bank_of_america(tmp_path, monkeypatch):
         "Check that 'bank of america' detection fires before the Chase check."
     )
     assert stats["added_transactions"] == 7
+
+
+# ---------------------------------------------------------------------------
+# Regression: explicit negative-sign amounts in BoA OCR text
+#
+# BoA writes withdrawal amounts with a leading '-' (e.g. "-150.00").
+# Before the fix the regex `([\d,]+\.\d{2})` silently dropped those lines.
+# After the fix `-?` in the regex captures them and `abs()` ensures the
+# section-based direction logic (not the raw sign) controls the final sign.
+# ---------------------------------------------------------------------------
+
+_EXPLICIT_NEG_FIXTURE = """\
+Bank of America
+Account # XXXX XXXX XXXX 0205
+
+Deposits and other additions
+01/10/26  Refund From Merchant                    -25.00
+
+Withdrawals and other subtractions
+01/15/26  Card Purchase Coffee Shop               -12.50
+"""
+
+
+def test_explicit_negative_in_deposits_section_is_credit(tmp_path):
+    """
+    A line with a '-' amount inside a deposits section must parse as credit
+    (positive). Typical case: a refund/reversal credited back to the account
+    that BoA writes as '-25.00' in the deposits table.
+    """
+    from ocr_pipeline import parse_boa_statement_text
+
+    f = tmp_path / "boa_neg_test.txt"
+    f.write_text(_EXPLICIT_NEG_FIXTURE)
+
+    rows = parse_boa_statement_text(f)
+    deposits = [r for r in rows if r["Direction"] == "credit"]
+
+    assert len(deposits) == 1, f"Expected 1 credit row, got {len(deposits)}: {rows}"
+    assert deposits[0]["Amount"] == pytest.approx(25.00), (
+        f"Refund in deposits section must be positive, got {deposits[0]['Amount']}"
+    )
+
+
+def test_explicit_negative_in_withdrawals_section_is_debit(tmp_path):
+    """
+    A line with a '-' amount inside a withdrawals section must parse as debit
+    (negative). Without abs() the double-negation would flip the sign to +12.50.
+    """
+    from ocr_pipeline import parse_boa_statement_text
+
+    f = tmp_path / "boa_neg_test.txt"
+    f.write_text(_EXPLICIT_NEG_FIXTURE)
+
+    rows = parse_boa_statement_text(f)
+    debits = [r for r in rows if r["Direction"] == "debit"]
+
+    assert len(debits) == 1, f"Expected 1 debit row, got {len(debits)}: {rows}"
+    assert debits[0]["Amount"] == pytest.approx(-12.50), (
+        f"Purchase in withdrawals section must be negative, got {debits[0]['Amount']}"
+    )

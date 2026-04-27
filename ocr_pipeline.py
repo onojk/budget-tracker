@@ -1216,7 +1216,7 @@ _BOA_ACCT_RE = re.compile(
     r"Account\s*#\s*[\dX *-]*([\d]{4})", re.IGNORECASE
 )
 _BOA_LINE_RE = re.compile(
-    r"^\s*(\d{2}/\d{2}/\d{2})\s{2,}(.+?)\s{2,}\$?([\d,]+\.\d{2})\s*$"
+    r"^\s*(\d{2}/\d{2}/\d{2})\s{2,}(.+?)\s{2,}-?\$?([\d,]+\.\d{2})\s*$"
 )
 _BOA_DEPOSIT_HEADERS = (
     "deposits and other additions",
@@ -1279,7 +1279,7 @@ def parse_boa_statement_text(path: Path) -> list:
         except Exception:
             continue
 
-        magnitude = float(amt_str.replace(",", ""))
+        magnitude = abs(float(amt_str.replace(",", "")))
         amount = magnitude if current_direction == "credit" else -magnitude
         desc_clean = " ".join(desc.split())
 
