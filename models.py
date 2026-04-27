@@ -11,6 +11,7 @@ class Account(db.Model):
     name = db.Column(db.String(64), nullable=False, unique=True)
     institution = db.Column(db.String(64), nullable=False)
     last4 = db.Column(db.String(4), nullable=True)
+    account_type = db.Column(db.String(16), nullable=True)  # 'checking','savings','credit','wallet'
     last_statement_balance = db.Column(db.Numeric(12, 2), nullable=True)
     last_statement_date = db.Column(db.Date, nullable=True)
 
