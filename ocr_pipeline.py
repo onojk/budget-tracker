@@ -1568,6 +1568,13 @@ def process_uploaded_statement_files(uploads_dir, statements_dir):
     except Exception:
         pass
 
+    # Clear PayPal regular skip log at the start of each import run.
+    try:
+        from pathlib import Path as _Path
+        _Path("/tmp/paypal-regular-skipped.log").write_text("")
+    except Exception:
+        pass
+
     for src in sorted(uploads_dir.iterdir()):
         if not src.is_file():
             continue
@@ -1639,6 +1646,34 @@ def process_uploaded_statement_files(uploads_dir, statements_dir):
             raw_text = txt.read_text(errors="replace")
         except Exception:
             raw_text = ""
+        # PayPal regular account (wallet) detection — check BEFORE PayPal CC.
+        # Signature is "ACCOUNT STATEMENTS" + "PayPal Account ID".
+        # Mutually exclusive with PayPal CC ("paypal.com" + "Transaction details"):
+        # regular statements contain neither of those two strings (verified by grep).
+        # Phase A: imports Mass Pay Payment and Non Reference Credit Payment rows only.
+        # All other row types are skipped and appended to /tmp/paypal-regular-skipped.log.
+        if "ACCOUNT STATEMENTS" in raw_text and "PayPal Account ID" in raw_text:
+            try:
+                from parsers.paypal_regular_parser import parse_paypal_regular_statement_text
+                from pathlib import Path as _Path
+                pp_rows, pp_skipped, _pp_meta = parse_paypal_regular_statement_text(raw_text, txt.name)
+            except Exception as e:
+                print(f"[OCR] PayPal regular parse failed for {txt}: {e}")
+                pp_rows, pp_skipped = [], []
+            # Append header + skipped entries to audit log.
+            if pp_skipped:
+                try:
+                    skip_path = _Path("/tmp/paypal-regular-skipped.log")
+                    with skip_path.open("a", encoding="utf-8") as fh:
+                        fh.write(f"=== {txt.name} ===\n")
+                        for entry in pp_skipped:
+                            fh.write(entry + "\n")
+                except Exception:
+                    pass
+            if pp_rows:
+                all_rows.extend(pp_rows)
+            continue
+
         # PayPal Cashback Mastercard detection — check before CareCredit/Citi/CapOne/BoA/Chase.
         # Regular PayPal account statements use "ACCOUNT STATEMENTS"/"PayPal Account ID" —
         # they never contain "Transaction details", so this signature is mutually exclusive.

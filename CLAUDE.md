@@ -92,6 +92,10 @@ PUT  /api/transactions/<id>           Update one field on a transaction
   - **Venmo** — Venmo, no last-4
   - **CapOne Platinum 0728** — Capital One, last-4 0728
   - **CapOne Quicksilver 7398** — Capital One, last-4 7398
+  - **Citi Costco Anywhere Visa** — Citibank, last-4 2557
+  - **CareCredit Rewards Mastercard** — Synchrony Bank, last-4 7649
+  - **PayPal Cashback Mastercard** — Synchrony Bank, last-4 9868
+  - **PayPal Account** — PayPal wallet, no last-4 (identified by onojk123@gmail.com)
   Adding a new account: insert a row into the `account` table (or extend
   `migrate_add_accounts.py`) before importing statements for that account.
 
@@ -124,6 +128,31 @@ PUT  /api/transactions/<id>           Update one field on a transaction
   larger or flips character, investigate — could be a new transaction type or
   parser regression. Do not attempt to "fix" the Venmo reconciliation by
   adjusting parser logic.
+- **PayPal regular (wallet)**: NOT a closed ledger and not attempted. The wallet
+  balance is $0 throughout (pass-through only). Phase A imports only:
+  Mass Pay Payment rows (Tipalti income) and Non Reference Credit Payment rows
+  (cashback). All other row types are intentionally skipped — they duplicate
+  transactions already imported from the funding account (Chase x-9765) or the
+  PayPal Cashback Mastercard. Jan–Mar 2026: 3 rows imported.
+
+### Skip logs (import audit trails)
+
+Two skip-log files capture transactions intentionally not imported because they
+duplicate data already present from another account:
+
+- `/tmp/venmo-skipped.log` — bank-funded Venmo merchant transactions (mirror of
+  Chase debit entries). No per-file headers; entries are `date|type|amount|...`.
+- `/tmp/paypal-regular-skipped.log` — all PayPal regular rows except Mass Pay and
+  Non Reference Credit. Includes a `=== {filename} ===` header before each
+  statement's entries so entries are traceable to their source PDF.
+
+Both logs are **cleared at the start of each import run** and appended within the
+session. The per-file header pattern (PayPal regular) is the standard going
+forward; the Venmo log predates it and does not yet have headers.
+
+**Future Phase B**: a matcher that reads these logs and links skipped rows to their
+bank-side mirror transactions (for transfer reconciliation). Do not add this logic
+until Phase A imports are complete and stable across all statement months.
 
 ## What NOT to do
 
@@ -143,7 +172,7 @@ Long-term: multi-user, mobile responsive, cloud sync.
 
 ## Testing
 
-60 tests across 7 files, all passing. Run with:
+143 tests across 9 files, all passing. Run with:
 
 ```bash
 .venv/bin/pytest -v
@@ -158,6 +187,12 @@ Test files:
 - `tests/test_venmo_parser.py` — Venmo CSV parser, skip logic, dedup, reconciliation
 - `tests/test_capitalone_parser.py` — Capital One PDF parser, sign rules,
   merchant cleaning, interest synthesis, closed-ledger reconciliation
+- `tests/test_carecredit_parser.py` — CareCredit PDF parser, parenthesized credits,
+  zero cash-advance skip, closed-ledger reconciliation
+- `tests/test_paypal_parser.py` — PayPal Cashback Mastercard parser, year inference,
+  interest dedup, zero cash-advance skip
+- `tests/test_paypal_regular_parser.py` — PayPal regular wallet parser, Phase A
+  import policy, intra-file dedup, skip log entries
 
 Synthetic fixtures live in `tests/fixtures/`. Tests use an in-memory SQLite
 database via `DATABASE_URL` set in `tests/conftest.py` — no live DB is touched.
