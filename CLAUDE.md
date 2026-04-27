@@ -29,9 +29,13 @@ root). The `instance/` directory is gitignored.
 
 ```
 app.py                    Flask app, routes, API, inline-edit handler
-models.py                 SQLAlchemy models: Transaction, CategoryRule, OcrRejectedLine
+models.py                 SQLAlchemy models: Account, Transaction (FK → Account),
+                          CategoryRule, OcrRejectedLine
 config.py.example         Config template — copy to config.py
-ocr_pipeline.py           PDF + screenshot ingestion (pdfplumber + tesseract)
+ocr_pipeline.py           PDF + screenshot ingestion; contains both
+                          _parse_chase_transaction_detail and
+                          parse_boa_statement_text, with a content-based
+                          router in process_uploaded_statement_files
 ocr_import_helpers.py     Shared helpers for OCR row imports
 categorizer.py            Rule-based auto-categorization
 direction_rules.py        Debit/credit direction inference
@@ -41,6 +45,9 @@ parsers/                  Per-source parsers (currently: venmo)
 templates/                Jinja2 templates
 static/                   styles.css, dashboard.js, htmx.min.js
 scripts/                  One-off CLI utilities (see below)
+scripts/migrate_add_accounts.py  One-time schema migration: creates Account
+                          table, adds account_id FK, seeds 3 accounts.
+                          Idempotent — safe to re-run on a fresh clone.
 archive/                  Historical/broken files — DO NOT use as reference
 ```
 
@@ -49,6 +56,7 @@ archive/                  Historical/broken files — DO NOT use as reference
 `scripts/` contains CLI utilities for data lifecycle work. They expect to be
 run from the project root with the venv active. Common ones:
 
+- `migrate_add_accounts.py` — create Account table, seed accounts, backfill FKs
 - `import_credit_card_csv.py` — import a credit-card CSV
 - `import_all_pdfs_to_db.py` — bulk import PDF statements
 - `import_screenshots_now.py` — bulk import OCR'd screenshots
@@ -75,6 +83,26 @@ PUT  /api/transactions/<id>           Update one field on a transaction
   from new import scripts; use `Transaction.from_dict()` so dedup/normalization
   stays consistent.
 - `config.py` is gitignored. Anything secret-like goes there or in `.env`.
+- Every Transaction should have `account_id` set (FK to Account). The three
+  seeded accounts are:
+  - **BoA Adv Plus** — Bank of America, last-4 0205
+  - **Chase Checking** — JPMorgan Chase, last-4 9765
+  - **Chase Savings** — JPMorgan Chase, last-4 9383
+  Adding a new account: insert a row into the `account` table (or extend
+  `migrate_add_accounts.py`) before importing statements for that account.
+
+## Importing data
+
+1. Drop statement PDFs into the browser at `/import/ocr`.
+2. The router in `process_uploaded_statement_files` auto-detects the bank:
+   - "bank of america" in first 2000 chars → `parse_boa_statement_text`
+   - `*start*transaction detail` block → `_parse_chase_transaction_detail`
+   - Otherwise falls through to the generic screenshot/OCR parser.
+3. For a new bank, add a parser to `ocr_pipeline.py` and register it in the
+   router before the Chase check.
+4. **Reconciliation oracle**: after every import, verify that
+   `sum(transaction amounts for the period) == ending_balance - beginning_balance`
+   (to within 1 cent). The bank's own statement figures are ground truth.
 
 ## What NOT to do
 
@@ -94,5 +122,18 @@ Long-term: multi-user, mobile responsive, cloud sync.
 
 ## Testing
 
-There are currently no automated tests. Adding `pytest` + a `tests/` directory
-is a reasonable first improvement.
+29 tests across 5 files, all passing. Run with:
+
+```bash
+.venv/bin/pytest -v
+```
+
+Test files:
+- `tests/test_smoke.py` — Flask routes and API contract
+- `tests/test_transactions.py` — delete endpoint, transfer unlinking
+- `tests/test_sign_inference.py` — debit/credit sign inference edge cases
+- `tests/test_ocr_pipeline.py` — Chase parser, merchant extraction, routing
+- `tests/test_boa_parser.py` — BoA parser, explicit-negative amounts, routing
+
+Synthetic fixtures live in `tests/fixtures/`. Tests use an in-memory SQLite
+database via `DATABASE_URL` set in `tests/conftest.py` — no live DB is touched.
