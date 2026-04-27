@@ -1050,7 +1050,7 @@ def _split_chase_merchant(raw_line: str):
 
 def _iter_transaction_lines(txt: str):
     """
-    Yield lines inside the *start*transaction detail ... block.
+    Yield lines inside every *start*transaction detail ... *end* block.
     """
     in_block = False
     for line in txt.splitlines():
@@ -1058,7 +1058,8 @@ def _iter_transaction_lines(txt: str):
             in_block = True
             continue
         if in_block and line.strip().startswith("*end*"):
-            break
+            in_block = False
+            continue
         if in_block:
             yield line
 
