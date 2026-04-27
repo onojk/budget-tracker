@@ -1,0 +1,40 @@
+                         CARECREDIT REWARDS MASTERCARD                                                        TEST USER
+                                                                                                              Account Number :    xxxx xxxx xxxx 9999
+                                                                                                              Statement Closing Date: 07/31/2025
+
+
+
+                         Summary of Account Activity                                                         Payment Information
+                         Previous Balance                                                  $500.00            New Balance                                                                $455.00
+                         +      New Purchases                                              $110.00
+                          -     Payments                                                  $170.00
+                         +/-    Interest Charge (net)                                      $15.00
+                         New Balance                                                       $455.00
+
+                         Credit Limit                                                    $5,000.00
+                         Available Credit                                                $4,545.00
+
+                         Days in Billing Period                                                      31
+
+
+                         Transaction Summary
+                          Tran Date           Post Date         Reference Number                        Description                                                                 Amount
+
+       OTHER TRANSACTIONS
+                          07/05/2025          07/05/2025        8534812AA01ABCDE1                       PURCHASE DOLLAR FORMAT                                                           $80.00
+                          07/06/2025          07/06/2025        8534812BB01BCDEF2                       PURCHASE PLAIN FORMAT                                                             30.00
+                          07/10/2025          07/10/2025        8534812CC01CDEFG3                       PAYMENT DOLLAR PARENS                                                        ($150.00)
+                          07/15/2025          07/15/2025        8534812DD01DEFGH4                       PAYMENT PLAIN PARENS                                                          (20.00)
+
+                                                                                                        FEES
+                                                                                                        TOTAL FEES FOR THIS PERIOD                                                         0.00
+
+                                                                                                        INTEREST CHARGED
+                          07/31/2025          07/31/2025                                                INTEREST CHARGE ON PURCHASES &                                                    15.00
+                                                                                                        BALANCE TRANSFERS
+                          07/31/2025          07/31/2025                                                INTEREST CHARGE ON CASH ADVANCES                                                   0.00
+                                                                                                        TOTAL INTEREST FOR THIS PERIOD                                                    15.00
+
+                                                               2025 Totals Year-to-Date
+                                                               Total Fees Charged in 2025                                              $0.00
+                                                               Total Interest Charged in 2025                                         $15.00
