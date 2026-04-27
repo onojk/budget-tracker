@@ -1,4 +1,7 @@
 // static/dashboard.js
+// Note: dashboard metric cards, account grid, and debt thermometer are
+// server-rendered by the /dashboard route. This file handles inline editing
+// on the transactions page and provides shared fetch/format utilities.
 
 // -------------------------
 // Helpers
@@ -30,86 +33,6 @@ function formatMoney(value) {
   const sign = num < 0 ? "-" : "";
   const abs = Math.abs(num);
   return `${sign}$${abs.toFixed(2)}`;
-}
-
-// -------------------------
-// Summary (cards + charts)
-// -------------------------
-async function loadSummary() {
-  try {
-    const data = await fetchJSON("/api/summary");
-
-    const elBalance = document.getElementById("current-balance");
-    const elNet = document.getElementById("net-this-month");
-    const elIncome = document.getElementById("income-this-month");
-    const elSpent = document.getElementById("spent-this-month");
-    const elLabel = document.getElementById("period-label");
-
-    if (elBalance) elBalance.textContent = formatMoney(data.current_balance);
-    if (elNet) elNet.textContent = formatMoney(data.net_this_month);
-    if (elIncome) elIncome.textContent = formatMoney(data.total_income_this_month);
-    if (elSpent) elSpent.textContent = formatMoney(data.total_spent_this_month);
-    if (elLabel) elLabel.textContent = data.today;
-
-    // Category chart
-    const catCanvas = document.getElementById("categoryChart");
-    if (catCanvas && window.Chart && data.by_category) {
-      const catCtx = catCanvas.getContext("2d");
-      const catLabels = data.by_category.map((x) => x.category);
-      const catValues = data.by_category.map((x) => -Number(x.amount || 0)); // spending negative
-
-      new Chart(catCtx, {
-        type: "doughnut",
-        data: {
-          labels: catLabels,
-          datasets: [
-            {
-              data: catValues,
-            },
-          ],
-        },
-        options: {
-          plugins: {
-            legend: { position: "bottom" },
-          },
-        },
-      });
-    }
-
-    // Trend chart
-    const trendCanvas = document.getElementById("trendChart");
-    if (trendCanvas && window.Chart && data.trend) {
-      const trendCtx = trendCanvas.getContext("2d");
-      const labels = data.trend.map((x) => x.label);
-      const income = data.trend.map((x) => Number(x.income || 0));
-      const spending = data.trend.map((x) => -Number(x.spending || 0));
-      const net = data.trend.map((x) => Number(x.net || 0));
-
-      new Chart(trendCtx, {
-        type: "line",
-        data: {
-          labels,
-          datasets: [
-            { label: "Income", data: income },
-            { label: "Spending", data: spending },
-            { label: "Net", data: net },
-          ],
-        },
-        options: {
-          responsive: true,
-          scales: {
-            y: {
-              ticks: {
-                callback: (value) => `$${value}`,
-              },
-            },
-          },
-        },
-      });
-    }
-  } catch (err) {
-    console.error("Failed to load summary:", err);
-  }
 }
 
 // -------------------------
@@ -246,6 +169,5 @@ async function saveTransactionField(id, payload) {
 // Init
 // -------------------------
 document.addEventListener("DOMContentLoaded", () => {
-  loadSummary();
   loadTransactions();
 });

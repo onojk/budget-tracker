@@ -136,5 +136,51 @@ body {
 
 body{background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);min-height:100vh;font-family:system-ui,sans-serif}
 .container{background:rgba(255,255,255,0.97);border-radius:20px;padding:2rem;margin-top:2rem;box-shadow:0 20px 50px rgba(0,0,0,.3)}
-.card{transition:.3s}.card:hover{transform:translateY(-10px)}
+.card{transition:.3s}
 .editable{cursor:pointer}.editable:hover{background:#f0f8ff !important}
+
+/* ── Phase 1 Dashboard ──────────────────────────────────────────────────── */
+
+.metric-card { border: none; border-radius: 10px; }
+.metric-card .card-body { padding: 1.1rem 1.25rem; }
+.metric-label { font-size: 0.75rem; font-weight: 600; text-transform: uppercase;
+                letter-spacing: 0.05em; opacity: 0.75; margin-bottom: 0.25rem; }
+.metric-value { font-size: 1.6rem; font-weight: 700; line-height: 1.1; }
+.metric-sub   { font-size: 0.7rem; opacity: 0.65; margin-top: 0.2rem; }
+
+.metric-cash    { background: #e8f5e9; color: #1b5e20; }
+.metric-debt    { background: #ffebee; color: #b71c1c; }
+.metric-neutral { background: #f3f4f6; color: #374151; }
+
+/* Account grid sort indicators */
+th.sortable:hover { background: #e9ecef; }
+th.sort-asc::after  { content: " ▲"; font-size: 0.7em; opacity: 0.6; }
+th.sort-desc::after { content: " ▼"; font-size: 0.7em; opacity: 0.6; }
+
+/* Type badges */
+.badge-type { display: inline-block; padding: 2px 8px; border-radius: 999px;
+              font-size: 0.72rem; font-weight: 600; }
+.badge-credit   { background: #fde8e8; color: #991b1b; }
+.badge-checking { background: #dbeafe; color: #1e40af; }
+.badge-savings  { background: #d1fae5; color: #065f46; }
+.badge-wallet   { background: #f3f4f6; color: #374151; }
+
+/* Freshness dots */
+.freshness-dot { display: inline-block; width: 8px; height: 8px;
+                 border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+.dot-green  { background: #16a34a; }
+.dot-yellow { background: #ca8a04; }
+.dot-red    { background: #dc2626; }
+
+/* Debt thermometer */
+.debt-bar { display: flex; height: 44px; border-radius: 8px;
+            overflow: hidden; width: 100%; }
+.debt-segment { display: flex; align-items: center; justify-content: center;
+                min-width: 0; overflow: hidden; transition: flex 0.3s; }
+.debt-label { color: #fff; font-size: 0.65rem; font-weight: 600;
+              text-align: center; line-height: 1.2; padding: 0 4px;
+              white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.debt-legend-item { display: flex; align-items: center; gap: 6px;
+                    font-size: 0.8rem; }
+.debt-legend-swatch { display: inline-block; width: 12px; height: 12px;
+                      border-radius: 3px; flex-shrink: 0; }

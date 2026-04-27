@@ -1,13 +1,239 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="container py-5"><div class="text-center mb-5"><h1 class="text-white display-4">Budget Tracker <small class="text-light">Premium</small></h1></div>
-<div class="row g-4 mb-5"><div class="col-md-4"><div class="card bg-success text-white shadow-lg"><div class="card-body text-center"><h5>Net Worth</h5><h2>${{ "%.2f" % net_worth }}</h2></div></div></div>
-<div class="col-md-4"><div class="card bg-primary text-white shadow-lg"><div class="card-body text-center"><h5>Income This Month</h5><h2>+${{ "%.2f" % monthly_income }}</h2></div></div></div>
-<div class="col-md-4"><div class="card bg-danger text-white shadow-lg"><div class="card-body text-center"><h5>Spending This Month</h5><h2>-${{ "%.2f" % monthly_spending }}</h2></div></div></div>
-</div><div class="row"><div class="col-lg-6"><div class="card shadow-lg p-4"><canvas id="catChart"></canvas></div></div>
-<div class="col-lg-6"><div class="card shadow-lg p-4"><canvas id="trendChart"></canvas></div></div></div></div>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+{# ── 4 Metric Cards ─────────────────────────────────────────────────────── #}
+<div class="row g-3 mb-4">
+
+  <div class="col-6 col-md-3">
+    <div class="card metric-card metric-cash h-100">
+      <div class="card-body">
+        <div class="metric-label">Cash on Hand</div>
+        <div class="metric-value">${{ "%.2f"|format(cash_on_hand) }}</div>
+        <div class="metric-sub">checking · savings · wallets</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-6 col-md-3">
+    <div class="card metric-card metric-debt h-100">
+      <div class="card-body">
+        <div class="metric-label">Total Debt</div>
+        <div class="metric-value">${{ "%.2f"|format(total_debt) }}</div>
+        <div class="metric-sub">credit cards only</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-6 col-md-3">
+    <div class="card metric-card metric-neutral h-100">
+      <div class="card-body">
+        <div class="metric-label">Avg Days Since Statement</div>
+        <div class="metric-value">{{ avg_days_since_statement if avg_days_since_statement is not none else "—" }}</div>
+        <div class="metric-sub">across all 10 accounts</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-6 col-md-3">
+    <div class="card metric-card metric-neutral h-100">
+      <div class="card-body">
+        <div class="metric-label">Transactions Tracked</div>
+        <div class="metric-value">{{ total_transactions }}</div>
+        <div class="metric-sub">all accounts, all time</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+{# ── Account Balance Grid ────────────────────────────────────────────────── #}
+<div class="card mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <strong>Account Balances</strong>
+    <small class="text-muted">as of last statement · click column header to sort</small>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-sm table-hover mb-0" id="acct-table">
+      <thead class="table-light">
+        <tr>
+          <th class="sortable" data-col="name">Account</th>
+          <th class="sortable" data-col="institution">Institution</th>
+          <th class="sortable text-center" data-col="last4">Last 4</th>
+          <th class="sortable text-end" data-col="balance">Balance</th>
+          <th class="sortable text-center" data-col="as_of">As-of Date</th>
+          <th class="sortable text-center" data-col="days_since">Days Since</th>
+          <th class="text-center">Type</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in accounts %}
+        {% set days = a.days_since %}
+        {% if days is not none and days >= 45 %}
+          {% set row_class = "table-danger" %}
+          {% set dot_class = "dot-red" %}
+        {% elif days is not none and days >= 30 %}
+          {% set row_class = "table-warning" %}
+          {% set dot_class = "dot-yellow" %}
+        {% else %}
+          {% set row_class = "" %}
+          {% set dot_class = "dot-green" %}
+        {% endif %}
+        <tr class="{{ row_class }}"
+            data-name="{{ a.name }}"
+            data-institution="{{ a.institution }}"
+            data-last4="{{ a.last4 or '—' }}"
+            data-balance="{{ a.balance }}"
+            data-as_of="{{ a.as_of or '' }}"
+            data-days_since="{{ days if days is not none else 9999 }}"
+            data-account_type="{{ a.account_type or '' }}">
+          <td>{{ a.name }}</td>
+          <td>{{ a.institution }}</td>
+          <td class="text-center font-monospace">{{ a.last4 or "—" }}</td>
+          <td class="text-end font-monospace fw-semibold">${{ "%.2f"|format(a.balance) }}</td>
+          <td class="text-center text-muted small">{{ a.as_of or "—" }}</td>
+          <td class="text-center">
+            <span class="freshness-dot {{ dot_class }}"></span>
+            {{ days if days is not none else "—" }}
+          </td>
+          <td class="text-center">
+            {% if a.account_type == "credit" %}
+              <span class="badge-type badge-credit">credit</span>
+            {% elif a.account_type == "savings" %}
+              <span class="badge-type badge-savings">savings</span>
+            {% elif a.account_type == "checking" %}
+              <span class="badge-type badge-checking">checking</span>
+            {% else %}
+              <span class="badge-type badge-wallet">wallet</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ── Debt Thermometer ────────────────────────────────────────────────────── #}
+{% set thermo_colors = ["#c0392b","#e74c3c","#e67e22","#d35400","#f39c12"] %}
+<div class="card mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <strong>Credit Card Debt</strong>
+    <small class="text-muted">
+      Interest charged last 90 days: <strong>${{ "%.2f"|format(interest_90d) }}</strong>
+    </small>
+  </div>
+  <div class="card-body">
+    <div class="debt-bar">
+      {% for a in _credit_accounts %}
+      {% set pct = (a.last_statement_balance | float / _credit_total * 100) %}
+      {% set color = thermo_colors[loop.index0 % thermo_colors|length] %}
+      <div class="debt-segment"
+           style="flex: {{ pct }}; background: {{ color }};"
+           title="{{ a.name }}: ${{ '%.2f'|format(a.last_statement_balance|float) }}">
+        <span class="debt-label">{{ a.name.split()[0] }}<br>${{ '%.0f'|format(a.last_statement_balance|float) }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="d-flex flex-wrap gap-3 mt-2">
+      {% for a in _credit_accounts %}
+      {% set color = thermo_colors[loop.index0 % thermo_colors|length] %}
+      <span class="debt-legend-item">
+        <span class="debt-legend-swatch" style="background:{{ color }};"></span>
+        {{ a.name }} — ${{ "%.2f"|format(a.last_statement_balance|float) }}
+      </span>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+{# ── Freshness Panel ─────────────────────────────────────────────────────── #}
+<div class="card mb-4">
+  <div class="card-header">
+    <strong>Account Freshness</strong>
+    <span class="text-muted ms-2 small">{{ accounts|length }} accounts · {{ total_transactions }} transactions tracked</span>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Account</th>
+          <th class="text-center">Last Statement</th>
+          <th class="text-center">Days Since</th>
+          <th class="text-center">Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in accounts %}
+        {% set days = a.days_since %}
+        {% if days is not none and days >= 45 %}
+          {% set dot = "dot-red" %}{% set status = "Overdue" %}
+        {% elif days is not none and days >= 30 %}
+          {% set dot = "dot-yellow" %}{% set status = "Stale" %}
+        {% else %}
+          {% set dot = "dot-green" %}{% set status = "Current" %}
+        {% endif %}
+        <tr>
+          <td>{{ a.name }}</td>
+          <td class="text-center text-muted small">{{ a.as_of or "—" }}</td>
+          <td class="text-center">{{ days if days is not none else "—" }}</td>
+          <td class="text-center">
+            <span class="freshness-dot {{ dot }}"></span> {{ status }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
 <script>
-new Chart(document.getElementById("catChart"),{type:"doughnut",data:{{ category_data|tojson }},options:{responsive:true,plugins:{legend:{position:"right"}}}});
-new Chart(document.getElementById("trendChart"),{type:"line",data:{{ trend_data|tojson }},options:{responsive:true}});
-</script>{% endblock %}
+// ── Sortable account table ───────────────────────────────────────────────────
+(function () {
+  const table = document.getElementById("acct-table");
+  if (!table) return;
+
+  let sortCol = null;
+  let sortAsc = true;
+
+  table.querySelectorAll("th.sortable").forEach((th) => {
+    th.style.cursor = "pointer";
+    th.addEventListener("click", () => {
+      const col = th.dataset.col;
+      if (sortCol === col) {
+        sortAsc = !sortAsc;
+      } else {
+        sortCol = col;
+        sortAsc = col === "name" || col === "institution"; // default asc for text, desc for numbers
+      }
+      sortTable(col, sortAsc);
+      // Update header arrows
+      table.querySelectorAll("th.sortable").forEach((h) => {
+        h.classList.remove("sort-asc", "sort-desc");
+      });
+      th.classList.add(sortAsc ? "sort-asc" : "sort-desc");
+    });
+  });
+
+  function sortTable(col, asc) {
+    const tbody = table.querySelector("tbody");
+    const rows = Array.from(tbody.querySelectorAll("tr"));
+    rows.sort((a, b) => {
+      let av = a.dataset[col] || "";
+      let bv = b.dataset[col] || "";
+      // Numeric columns
+      if (col === "balance" || col === "days_since") {
+        av = parseFloat(av) || 0;
+        bv = parseFloat(bv) || 0;
+        return asc ? av - bv : bv - av;
+      }
+      // String columns
+      return asc
+        ? av.localeCompare(bv)
+        : bv.localeCompare(av);
+    });
+    rows.forEach((r) => tbody.appendChild(r));
+  }
+})();
+</script>
+
+{% endblock %}

@@ -39,7 +39,7 @@ from sqlalchemy import (
 )
 
 from config import Config
-from models import db, Transaction, CategoryRule, OcrRejectedLine
+from models import db, Account, Transaction, CategoryRule, OcrRejectedLine
 from ocr_pipeline import (
     process_screenshot_files,
     process_statement_files,
@@ -605,111 +605,8 @@ def home():
 
 @app.route("/dashboard")
 def dashboard():
-    from datetime import date
-    from dateutil.relativedelta import relativedelta
-    from sqlalchemy import func, extract
-
-    today = date.today()
-
-    # Net worth = sum of all transactions
-    net_worth = db.session.query(
-        func.coalesce(func.sum(Transaction.amount), 0)
-    ).scalar() or 0
-
-    # Current-month income (positive amounts)
-    monthly_income = db.session.query(
-        func.coalesce(func.sum(Transaction.amount), 0)
-    ).filter(
-        Transaction.amount > 0,
-        extract('month', Transaction.date) == today.month,
-        extract('year', Transaction.date) == today.year,
-    ).scalar() or 0
-
-    # Current-month spending (negative amounts, absolute)
-    monthly_spending = abs(
-        db.session.query(
-            func.coalesce(func.sum(Transaction.amount), 0)
-        ).filter(
-            Transaction.amount < 0,
-            extract('month', Transaction.date) == today.month,
-            extract('year', Transaction.date) == today.year,
-        ).scalar() or 0
-    )
-
-    # Category chart: spending only
-    cat = db.session.query(
-        Transaction.category,
-        func.sum(func.abs(Transaction.amount))
-    ).filter(
-        Transaction.amount < 0
-    ).group_by(
-        Transaction.category
-    ).all()
-
-    category_data = {
-        "labels": [r[0] for r in cat],
-        "datasets": [{
-            "data": [float(r[1]) for r in cat],
-            "backgroundColor": [
-                "#FF6384", "#36A2EB", "#FFCE56",
-                "#4BC0C0", "#9966FF", "#FF9F40", "#C9CBCF"
-            ],
-        }],
-    }
-
-    # 12-month trend (income vs spending)
-    months, income, spending = [], [], []
-    for i in range(11, -1, -1):
-        m = date(today.year, today.month, 1) - relativedelta(months=i)
-
-        inc = db.session.query(
-            func.coalesce(func.sum(Transaction.amount), 0)
-        ).filter(
-            extract('month', Transaction.date) == m.month,
-            extract('year', Transaction.date) == m.year,
-            Transaction.amount > 0,
-        ).scalar() or 0
-
-        spn = abs(
-            db.session.query(
-                func.coalesce(func.sum(Transaction.amount), 0)
-            ).filter(
-                extract('month', Transaction.date) == m.month,
-                extract('year', Transaction.date) == m.year,
-                Transaction.amount < 0,
-            ).scalar() or 0
-        )
-
-        months.append(m.strftime("%b %Y"))
-        income.append(float(inc))
-        spending.append(float(spn))
-
-    trend_data = {
-        "labels": months,
-        "datasets": [
-            {
-                "label": "Income",
-                "data": income,
-                "borderColor": "#28a745",
-                "tension": 0.3,
-            },
-            {
-                "label": "Spending",
-                "data": spending,
-                "borderColor": "#dc3545",
-                "tension": 0.3,
-            },
-        ],
-    }
-
-    return render_template(
-        "dashboard.html",
-        net_worth=net_worth,
-        monthly_income=monthly_income,
-        monthly_spending=monthly_spending,
-        category_data=category_data,
-        trend_data=trend_data,
-    )
+    d = _build_dashboard_data()
+    return render_template("dashboard.html", **d)
 
 # ----------------------------
 # API: Get transactions list
@@ -801,6 +698,107 @@ def api_summary():
             "trend": trend,
         }
     )
+
+
+# -------------------------------------------------------------------
+# API: Phase 1 dashboard — position view (/api/dashboard)
+# -------------------------------------------------------------------
+def _build_dashboard_data():
+    """
+    Compute all data needed for the Phase 1 position dashboard.
+    Shared by the /api/dashboard JSON endpoint and the /dashboard HTML route.
+    """
+    today = date.today()
+    cutoff_90d = today - timedelta(days=90)
+
+    accounts = Account.query.order_by(Account.id).all()
+
+    cash_types = {"checking", "savings", "wallet"}
+
+    cash_on_hand = sum(
+        float(a.last_statement_balance or 0)
+        for a in accounts
+        if a.account_type in cash_types
+    )
+    total_debt = sum(
+        float(a.last_statement_balance or 0)
+        for a in accounts
+        if a.account_type == "credit"
+    )
+
+    days_list = [
+        a.days_since_last_statement
+        for a in accounts
+        if a.days_since_last_statement is not None
+    ]
+    avg_days = round(sum(days_list) / len(days_list)) if days_list else None
+
+    total_tx = Transaction.query.count()
+
+    # Interest charged in the last 90 days across credit accounts.
+    # Works because our parsers consistently embed "INTEREST" / "Interest" in
+    # the merchant string (e.g. "INTEREST CHARGE ON PURCHASES", "Capital One
+    # Interest"). If a non-interest merchant ever contains that word, this query
+    # needs a more specific filter. Today's data (Jan–Apr 2026) is safe.
+    from sqlalchemy import func
+    interest_90d = float(
+        db.session.query(func.sum(func.abs(Transaction.amount)))
+        .join(Account, Transaction.account_id == Account.id)
+        .filter(
+            Account.account_type == "credit",
+            Transaction.date >= cutoff_90d,
+            Transaction.merchant.ilike("%interest%"),
+        )
+        .scalar() or 0
+    )
+
+    # Sort: checking → savings → wallet → credit; descending balance within group.
+    _type_order = {"checking": 0, "savings": 1, "wallet": 2, "credit": 3}
+    sorted_accounts = sorted(
+        accounts,
+        key=lambda a: (_type_order.get(a.account_type or "", 99),
+                       -float(a.last_statement_balance or 0)),
+    )
+
+    # Credit accounts only, for the debt thermometer (sorted by balance desc).
+    credit_accounts = [a for a in sorted_accounts if a.account_type == "credit"]
+    credit_total = total_debt or 1  # avoid div-by-zero in template
+
+    account_list = []
+    for a in sorted_accounts:
+        days = a.days_since_last_statement
+        account_list.append({
+            "id":           a.id,
+            "name":         a.name,
+            "institution":  a.institution,
+            "last4":        a.last4,
+            "balance":      float(a.last_statement_balance or 0),
+            "as_of":        a.last_statement_date.isoformat() if a.last_statement_date else None,
+            "days_since":   days,
+            "account_type": a.account_type,
+            "stale":        days is not None and days >= 30,
+        })
+
+    return {
+        "cash_on_hand":              cash_on_hand,
+        "total_debt":                total_debt,
+        "avg_days_since_statement":  avg_days,
+        "total_transactions":        total_tx,
+        "interest_90d":              interest_90d,
+        "accounts":                  account_list,
+        # Extra context for HTML template (not returned in JSON)
+        "_credit_accounts":          credit_accounts,
+        "_credit_total":             credit_total,
+        "_today":                    today,
+    }
+
+
+@app.route("/api/dashboard", methods=["GET"])
+def api_dashboard():
+    """Phase 1 position dashboard data as JSON."""
+    data = _build_dashboard_data()
+    # Strip private template-only keys before serialising
+    return jsonify({k: v for k, v in data.items() if not k.startswith("_")})
 
 
 # -------------------------------------------------------------------
