@@ -56,3 +56,12 @@ archive/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Personal data — never commit
+instance/
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+/tmp/*.log
+.DS_Store
