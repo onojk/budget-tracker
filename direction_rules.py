@@ -112,6 +112,11 @@ CREDIT_HINT_WORDS: tuple[str, ...] = (
     "venmo cashin",
     "paypal transfer",
     "paypal cashout from",
+    # inbound payment phrases — "payment" alone is a debit hint, so these
+    # longer phrases tip the scorer back to credit when both sides match
+    "payment received",
+    "received",
+    "credit recd",
 )
 
 

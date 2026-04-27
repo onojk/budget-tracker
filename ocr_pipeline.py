@@ -105,6 +105,8 @@ from datetime import datetime, date as _date_cls
 
 from decimal import Decimal, InvalidOperation
 
+from direction_rules import DEBIT_HINT_WORDS, CREDIT_HINT_WORDS
+
 from chase_amount_utils import (
     AMOUNT_RE,
     DATE_RE,
@@ -270,17 +272,19 @@ def parse_signed_amount(raw: str, context: str = "") -> Decimal:
     if negative:
         value = -value
 
-    ctx = (context or "").upper()
-
-    # Context nudges: some descriptions indicate debit, some credit
-    if any(w in ctx for w in _DEBIT_WORDS):
-        # Debits should be negative
-        if value > 0:
+    # Score-based sign inference: count debit and credit keyword hits.
+    # More hits on one side wins; on a tie, trust the raw sign already parsed.
+    # This replaces the old if/elif first-match approach, which let a broad
+    # debit word ("payment") override a specific credit word ("credit recd").
+    if context:
+        ctx_lower = context.lower()
+        debit_score  = sum(1 for w in DEBIT_HINT_WORDS  if w in ctx_lower)
+        credit_score = sum(1 for w in CREDIT_HINT_WORDS if w in ctx_lower)
+        if debit_score > credit_score and value > 0:
             value = -value
-    elif any(w in ctx for w in _CREDIT_WORDS):
-        # Credits should be positive
-        if value < 0:
+        elif credit_score > debit_score and value < 0:
             value = -value
+        # tie → keep the raw sign already parsed above
 
     return value
 
