@@ -1417,6 +1417,23 @@ def process_uploaded_statement_files(uploads_dir, statements_dir):
     all_rows = []
 
     for txt in txt_paths:
+        # 0) Chase statement-detail block parser — highest priority.
+        #    If the file contains the *start*transaction detail marker, route
+        #    to _parse_chase_transaction_detail and skip the legacy parsers.
+        try:
+            raw_text = txt.read_text(errors="replace")
+        except Exception:
+            raw_text = ""
+        if "*start*transaction detail" in raw_text:
+            try:
+                detail_rows = _parse_chase_transaction_detail(txt)
+            except Exception as e:
+                print(f"[OCR] Chase detail parse failed for {txt}: {e}")
+                detail_rows = []
+            if detail_rows:
+                all_rows.extend(detail_rows)
+                continue
+
         # a) Chase dashboard screenshot parser (your custom function)
         try:
             chase_rows = parse_chase_dashboard_ocr_text(txt)
