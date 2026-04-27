@@ -25,6 +25,7 @@ SEED_ACCOUNTS = [
     {"name": "Venmo",                "institution": "Venmo",           "last4": None},
     {"name": "CapOne Platinum 0728", "institution": "Capital One",     "last4": "0728"},
     {"name": "CapOne Quicksilver 7398", "institution": "Capital One",  "last4": "7398"},
+    {"name": "Citi Costco Anywhere Visa", "institution": "Citibank",  "last4": "2557"},
 ]
 
 with app.app_context():

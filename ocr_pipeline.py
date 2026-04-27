@@ -1639,6 +1639,18 @@ def process_uploaded_statement_files(uploads_dir, statements_dir):
             raw_text = txt.read_text(errors="replace")
         except Exception:
             raw_text = ""
+        # Citi PDF detection — check before CapOne/BoA/Chase.
+        if "citicards.com" in raw_text and "Previous balance" in raw_text:
+            try:
+                from parsers.citi_pdf_parser import parse_citi_statement_text
+                citi_rows, _citi_meta = parse_citi_statement_text(raw_text, txt.name)
+            except Exception as e:
+                print(f"[OCR] Citi parse failed for {txt}: {e}")
+                citi_rows = []
+            if citi_rows:
+                all_rows.extend(citi_rows)
+                continue
+
         # Capital One PDF detection — check before BoA/Chase.
         if "capitalone.com" in raw_text and "Trans Date" in raw_text and "ending in" in raw_text:
             try:
