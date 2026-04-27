@@ -1,0 +1,43 @@
+                         CARECREDIT REWARDS MASTERCARD                                                        TEST USER
+                                                                                                              Account Number :    xxxx xxxx xxxx 9999
+                                                                                                              Statement Closing Date: 01/31/2026
+
+
+
+                         Summary of Account Activity                                                         Payment Information
+                         Previous Balance                                                  $500.00            New Balance                                                                $530.00
+                         +      New Purchases                                               $75.00
+                          -     Payments                                                  $100.00
+                         +/-    Credits, Fees & Adjustments (net)                          $25.00
+                         +/-    Interest Charge (net)                                       $30.00
+                         New Balance                                                       $530.00
+
+                         Credit Limit                                                    $5,000.00
+                         Available Credit                                                    $0.00
+
+                         Days in Billing Period                                                      31
+
+
+                         Transaction Summary
+                          Tran Date           Post Date         Reference Number                        Description                                                                 Amount
+
+       OTHER TRANSACTIONS
+                          01/05/2026          01/05/2026        8534812AA01ABCDE1                       PAYMENT - THANK YOU                                                              ($100.00)
+
+       STANDARD PURCHASES
+                          01/15/2026          01/15/2026        8534812BB01BCDEF2                       SOME MERCHANT PURCHASE                                                            75.00
+
+                                                                                                        FEES
+                          01/20/2026          01/20/2026        8534812CC01CDEFG3                       SOME KIND OF FEE                                                                  25.00
+                                                                                                        TOTAL FEES FOR THIS PERIOD                                                        25.00
+
+                                                                                                        INTEREST CHARGED
+                          01/31/2026          01/31/2026                                                INTEREST CHARGE ON PURCHASES &                                                    30.00
+                                                                                                        BALANCE TRANSFERS
+                          01/31/2026          01/31/2026                                                INTEREST CHARGE ON CASH ADVANCES                                                   0.00
+                                                                                                        TOTAL INTEREST FOR THIS PERIOD                                                    30.00
+
+                                                               2026 Totals Year-to-Date
+                                                               Total Fees Charged in 2026                                             $25.00
+                                                               Total Interest Charged in 2026                                          $30.00
+                                                               Total Interest Paid in 2026                                           $100.00
