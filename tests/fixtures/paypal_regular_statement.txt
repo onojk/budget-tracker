@@ -1,0 +1,132 @@
+ACCOUNT STATEMENTS
+USER, TEST
+
+ Statement Period        PayPal Account ID
+ Jan 1, 2026 - Jan 31,   onojk123@gmail.com
+ 2026
+This document contains two statements
+PayPal account statement - A view of all PayPal account activity
+PayPal Balance account statement - A separate view of your PayPal Balance account activity
+Transactions paid with a PayPal Balance account and another payment method will appear in all affected statements
+
+
+
+PAYPAL ACCOUNT
+
+
+
+ACCOUNT ACTIVITY
+
+DATE             DESCRIPTION                                   CURRENCY        AMOUNT            FEES               TOTAL*
+
+01/14/2026       Non Reference Credit Payment                  USD             3.00              0.00               3.00
+                 ID: 1AB12345CD678901E
+
+
+01/21/2026       Express Checkout Payment: eBay                USD             -22.69            0.00               -22.69
+                 ID: 6TU104924K541201U
+
+
+01/21/2026       General Credit Card Deposit                   USD             22.69             0.00               22.69
+                 ID: 0JM56291X3079505H
+                 Ref ID: 6TU104924K541201U
+
+
+01/25/2026       PreApproved Payment Bill User Payment:        USD             -12.99            0.00               -12.99
+                 Spotify USA Inc
+                  JPMORGAN CHASE - Checking x-9765   12.99
+                 USD
+                 ID: 2SP99887AA123456B
+
+
+01/25/2026       User Initiated Withdrawal                     USD             -3.00             0.00               -3.00
+                  JPMORGAN CHASE - Checking x-9765
+                 ID: 9ZZ00001ZZ000001Z
+                 Ref ID: 1AB12345CD678901E
+
+
+01/30/2026       Mass Pay Payment: Tipalti Inc.                USD             99.04             0.00               99.04
+                 ID: 89020253GJ196492V
+
+
+01/30/2026       User Initiated Withdrawal                     USD             -99.04            0.00               -99.04
+                  JPMORGAN CHASE - Checking x-9765
+                 ID: 3ZZ00001ZZ000002Z
+                 Ref ID: 89020253GJ196492V
+
+
+
+
+                                                               Page 1
+ACCOUNT STATEMENTS
+USER, TEST
+
+ Statement Period        PayPal Account ID
+ Jan 1, 2026 - Jan 31,   onojk123@gmail.com
+ 2026
+
+
+PAYPAL ACCOUNT
+
+ACCOUNT ACTIVITY
+
+DATE             DESCRIPTION                                 CURRENCY   AMOUNT   FEES   TOTAL*
+
+01/14/2026       Non Reference Credit Payment                USD        3.00     0.00   3.00
+                 ID: 1AB12345CD678901E
+
+
+01/21/2026       Express Checkout Payment: eBay              USD        -22.69   0.00   -22.69
+                 ID: 6TU104924K541201U
+
+
+01/21/2026       General Credit Card Deposit                 USD        22.69    0.00   22.69
+                 ID: 0JM56291X3079505H
+                 Ref ID: 6TU104924K541201U
+
+
+01/25/2026       PreApproved Payment Bill User Payment:      USD        -12.99   0.00   -12.99
+                 Spotify USA Inc
+                  JPMORGAN CHASE - Checking x-9765   12.99
+                 USD
+                 ID: 2SP99887AA123456B
+
+
+01/25/2026       User Initiated Withdrawal                   USD        -3.00    0.00   -3.00
+                  JPMORGAN CHASE - Checking x-9765
+                 ID: 9ZZ00001ZZ000001Z
+                 Ref ID: 1AB12345CD678901E
+
+
+01/30/2026       Mass Pay Payment: Tipalti Inc.              USD        99.04    0.00   99.04
+                 ID: 89020253GJ196492V
+
+
+01/30/2026       User Initiated Withdrawal                   USD        -99.04   0.00   -99.04
+                  JPMORGAN CHASE - Checking x-9765
+                 ID: 3ZZ00001ZZ000002Z
+                 Ref ID: 89020253GJ196492V
+
+
+
+
+                                                             Page 2
+
+
+
+*For each transaction in your Account Activity, the Total equals the amount sent or received, plus or minus any Fees.
+
+
+
+In case of errors or questions about your electronic transfers,
+
+•     Telephone us at 402-938-3614;
+
+•     Write the PayPal Error Resolution Department at P.O. Box 45950, Omaha, NE 68145-0950; or
+
+•     Write to us through the Contact Us page.
+
+
+
+
+                                                             Page 3
