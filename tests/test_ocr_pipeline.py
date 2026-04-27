@@ -46,6 +46,72 @@ def test_parse_chase_transaction_detail_extracts_rows():
 
 
 # ---------------------------------------------------------------------------
+# 3. Merchant extraction helper
+#    Covers the common Chase transaction line prefixes.  The helper must
+#    strip the prefix (and inline MM/DD date for card purchases) and return
+#    a clean merchant name alongside the unchanged original description.
+# ---------------------------------------------------------------------------
+def test_chase_merchant_extraction():
+    from ocr_pipeline import _split_chase_merchant
+
+    cases = [
+        # Card Purchase with phone + 2-letter state + "Card"
+        (
+            "Card Purchase 01/19 Super Care Health 888-260-2550 CA Card",
+            "Super Care Health",
+        ),
+        # Card Purchase with state + "Card" (no phone)
+        (
+            "Card Purchase 02/03 Online Retailer CA Card",
+            "Online Retailer",
+        ),
+        # Card Purchase With Pin — no trailing state/Card suffix
+        (
+            "Card Purchase With Pin 01/15 Dollar Tree",
+            "Dollar Tree",
+        ),
+        # Recurring Card Purchase
+        (
+            "Recurring Card Purchase 02/15 Prime Video",
+            "Prime Video",
+        ),
+        # ACH Credit
+        (
+            "ACH Credit Payroll",
+            "Payroll",
+        ),
+        # Zelle Payment To
+        (
+            "Zelle Payment To John Smith",
+            "John Smith",
+        ),
+        # ATM
+        (
+            "ATM Cash Withdrawal",
+            "ATM Withdrawal",
+        ),
+        # Online Payment
+        (
+            "Online Payment 123456789 To Electric Company",
+            "Electric Company",
+        ),
+        # No known prefix — falls through unchanged
+        (
+            "Grocery Stop Market",
+            "Grocery Stop Market",
+        ),
+    ]
+    for raw, expected_merchant in cases:
+        merchant, description = _split_chase_merchant(raw)
+        assert merchant == expected_merchant, (
+            f"raw={raw!r}: got {merchant!r}, want {expected_merchant!r}"
+        )
+        assert description == raw, (
+            f"description should be unchanged raw for {raw!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # 2. Routing test
 #    Calls process_uploaded_statement_files with a txt file that contains
 #    the *start*transaction detail marker and asserts that candidate_lines
