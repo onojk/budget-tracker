@@ -883,6 +883,91 @@ def reports():
     return redirect("/dashboard")
 
 
+@app.template_filter("currency")
+def _currency_filter(value):
+    if value is None:
+        return "—"
+    return f"${abs(float(value)):,.2f}"
+
+
+@app.route("/budget-summary")
+def budget_summary():
+    data = {
+        "snapshot_date": "April 27, 2026",
+        # ── Section 1: Current snapshot ───────────────────────
+        "cash_accounts": [
+            ("Chase Checking",  421.26),
+            ("BoA Adv Plus",     19.64),
+            ("Venmo",            16.93),
+            ("Chase Savings",     0.01),
+            ("PayPal Account",    0.00),
+        ],
+        "cash_total":  457.84,
+        "debt_accounts": [
+            ("CareCredit",            2740.45),
+            ("CapOne Platinum 0728",   561.89),
+            ("Citi Costco 2557",       536.45),
+            ("CapOne Quicksilver",     499.71),
+            ("PayPal Cashback",        149.51),
+        ],
+        "debt_total":  4488.01,
+        # ── Section 2: Recent paydown ─────────────────────────
+        # (name, balance_before, balance_now)
+        "paydown_rows": [
+            ("CareCredit",        3740.45, 2740.45),
+            ("Citi Costco",        596.45,  536.45),
+            ("CapOne Platinum",    601.89,  561.89),
+            ("PayPal Cashback",    189.51,  149.51),
+            ("CapOne Quicksilver", 469.71,  499.71),
+        ],
+        "paydown_total": 1110.00,
+        # ── Section 3: Monthly household ──────────────────────
+        # (label, monthly_amount, is_transitioning)
+        "income_items": [
+            ("Spouse payroll (Millennium Health, biweekly)", 3670, False),
+            ("Music royalties (PayPal)", 100, False),
+            ("Earned income (transitioning)", None, True),
+        ],
+        "income_recurring":     3770,
+        "fixed_items": [
+            ("Rent + landlord utilities (water, trash, sewer, fee)", 2317),
+            ("Electricity (SDGE)", 150),
+            ("Cell phone (T-Mobile)", 180),
+        ],
+        "fixed_total":          2647,
+        "available_after_fixed": 1123,
+        # ── Section 4: Variable spending ──────────────────────
+        "variable_items": [
+            ("Groceries (Walmart, Costco, Vons, Albertsons)",        1500),
+            ("Medical / Pet (Banfield, SuperCare, CVS, MyScripps)",   550),
+            ("Dining / Fast Food (DoorDash, Starbucks, etc.)",        300),
+            ("Amazon (online orders)",                                  200),
+            ("Insurance (Geico)",                                        91),
+            ("Therapy (recurring)",                                      85),
+            ("Subscriptions (Hulu, Paramount, etc.)",                   80),
+            ("Charitable giving (church)",                               54),
+            ("Other / uncategorized",                                   300),
+        ],
+        "variable_total": 3160,
+        # ── Section 5: Structural gap ─────────────────────────
+        "cc_minimums":           244,
+        "available_for_variable": 879,   # income_recurring - fixed_total - cc_minimums
+        "gap_without_earned":   2281,   # variable_total - available_for_variable
+        "uber_income":          1620,
+        "total_with_uber":      5390,   # income_recurring + uber_income
+        "available_with_uber":  2499,   # total_with_uber - fixed_total - cc_minimums
+        "surplus_if_cut":        299,   # available_with_uber - 2200 target
+        # ── Section 6: May rent ───────────────────────────────
+        "rent_due_date":   "Friday, May 1, 2026",
+        "rent_amount":      2317,
+        "rent_checking":    421.26,
+        "rent_boa":          19.64,
+        "rent_available":   440.90,
+        "rent_shortfall":  1876.10,
+    }
+    return render_template("budget_summary.html", **data)
+
+
 @app.route("/api/transactions/<int:txn_id>", methods=["PUT", "POST"])
 def update_transaction_json(txn_id):
     """

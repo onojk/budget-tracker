@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Financial Position — {{ snapshot_date }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Lora:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+  <style>
+    /* ── Tokens ──────────────────────────────────────────── */
+    :root {
+      --bg:        #fafaf7;
+      --text:      #1a1a1a;
+      --muted:     #666666;
+      --label:     #999999;
+      --pos:       #3a7d44;
+      --neg:       #a83232;
+      --divider:   #e5e2da;
+      --font-body: 'Lora', Georgia, serif;
+      --font-ui:   'Inter', Helvetica, sans-serif;
+      --max-w:     680px;
+      --topbar-h:  44px;
+    }
+
+    /* ── Reset ───────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-body);
+      font-size: 18px;
+      line-height: 1.7;
+    }
+
+    /* ── Topbar ──────────────────────────────────────────── */
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: var(--bg);
+      border-bottom: 1px solid var(--divider);
+      padding: 0 1.5rem;
+      height: var(--topbar-h);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .back-link {
+      font-family: var(--font-ui);
+      font-size: 0.8rem;
+      color: var(--muted);
+      text-decoration: none;
+      transition: color 0.15s;
+    }
+    .back-link:hover { color: var(--text); }
+
+    .topbar-right {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .slide-indicator {
+      font-family: var(--font-ui);
+      font-size: 13px;
+      color: var(--label);
+      display: none;
+    }
+
+    #pres-btn {
+      background: none;
+      border: 1px solid var(--divider);
+      border-radius: 4px;
+      padding: 0.25rem 0.7rem;
+      font-family: var(--font-ui);
+      font-size: 0.75rem;
+      color: var(--muted);
+      cursor: pointer;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    #pres-btn:hover { border-color: var(--muted); color: var(--text); }
+
+    /* ── Sections ────────────────────────────────────────── */
+    section {
+      max-width: var(--max-w);
+      margin: 0 auto;
+      padding: 3rem 1.5rem 3.5rem;
+      border-bottom: 1px solid var(--divider);
+    }
+    section:last-child { border-bottom: none; }
+
+    /* ── Typography ──────────────────────────────────────── */
+    .section-label {
+      font-family: var(--font-ui);
+      font-size: 0.68rem;
+      letter-spacing: 0.14em;
+      color: var(--label);
+      text-transform: uppercase;
+      margin-bottom: 0.5rem;
+    }
+
+    h2 {
+      font-family: var(--font-ui);
+      font-weight: 600;
+      font-size: 1.35rem;
+      letter-spacing: -0.01em;
+      color: var(--text);
+      margin-bottom: 1rem;
+    }
+
+    .lede {
+      margin-bottom: 1.75rem;
+    }
+
+    .caveat {
+      margin-top: 1.25rem;
+      font-size: 0.85rem;
+      color: var(--muted);
+      font-style: italic;
+      line-height: 1.55;
+    }
+
+    /* ── Definition lists ────────────────────────────────── */
+    .dl-group {
+      margin: 1.5rem 0;
+    }
+
+    .dl-group-label {
+      font-family: var(--font-ui);
+      font-size: 0.72rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--label);
+      font-weight: 400;
+      margin-bottom: 0.4rem;
+    }
+
+    dl { margin: 0; }
+
+    .dl-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding: 0.3rem 0;
+      border-bottom: 1px solid var(--divider);
+    }
+    .dl-row:first-of-type { border-top: 1px solid var(--divider); }
+
+    dt {
+      font-size: 0.95rem;
+      flex: 1;
+      padding-right: 1rem;
+    }
+
+    dd {
+      font-family: var(--font-ui);
+      font-variant-numeric: tabular-nums;
+      font-size: 0.95rem;
+      min-width: 90px;
+      text-align: right;
+    }
+
+    .dl-total {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding: 0.45rem 0 0;
+      font-family: var(--font-ui);
+      font-weight: 600;
+      font-size: 1rem;
+      border-top: 2px solid var(--text);
+      margin-top: 0.1rem;
+    }
+
+    /* ── Tables ──────────────────────────────────────────── */
+    .amt-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1.5rem 0;
+      font-family: var(--font-ui);
+      font-size: 0.88rem;
+    }
+
+    .amt-table th {
+      text-align: left;
+      color: var(--label);
+      font-weight: 400;
+      font-size: 0.68rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 0.2rem 0.4rem 0.45rem;
+      border-bottom: 1px solid var(--divider);
+    }
+    .amt-table th:not(:first-child) { text-align: right; }
+
+    .amt-table td {
+      padding: 0.35rem 0.4rem;
+      border-bottom: 1px solid var(--divider);
+      font-variant-numeric: tabular-nums;
+    }
+    .amt-table td:not(:first-child) { text-align: right; }
+
+    .amt-table tfoot td {
+      font-weight: 600;
+      border-top: 2px solid var(--text);
+      border-bottom: none;
+      padding-top: 0.5rem;
+    }
+
+    /* ── Color utilities ─────────────────────────────────── */
+    .amt-pos  { color: var(--pos); }
+    .amt-neg  { color: var(--neg); }
+    .amt-muted { color: var(--muted); }
+    .fw-bold  { font-weight: 600; }
+
+    /* ── Headline numbers ────────────────────────────────── */
+    .headline {
+      margin: 1.5rem 0 0.25rem;
+    }
+    .headline-label {
+      font-family: var(--font-ui);
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      display: block;
+      margin-bottom: 0.15rem;
+    }
+    .headline-amount {
+      font-family: var(--font-ui);
+      font-size: 2.1rem;
+      font-weight: 600;
+      line-height: 1.15;
+      display: block;
+    }
+    .headline-sub {
+      font-size: 0.87rem;
+      color: var(--muted);
+      margin-top: 0.3rem;
+      font-style: italic;
+    }
+
+    /* ── Calc rows (Section 5) ───────────────────────────── */
+    .calc-block { margin: 1.25rem 0; }
+
+    .calc-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding: 0.3rem 0;
+      font-family: var(--font-ui);
+      font-size: 0.92rem;
+      border-bottom: 1px solid var(--divider);
+    }
+    .calc-row:first-of-type { border-top: 1px solid var(--divider); }
+
+    .calc-row.total {
+      font-weight: 600;
+      border-top: 2px solid var(--text);
+      border-bottom: 2px solid var(--text);
+      padding: 0.4rem 0;
+    }
+    .calc-row.gap-row {
+      border-top: none;
+      margin-top: 1rem;
+    }
+
+    .scenario-block { margin-top: 2.25rem; }
+    .scenario-label {
+      font-family: var(--font-ui);
+      font-size: 0.75rem;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 0.5rem;
+    }
+
+    /* ── Transitioning income row ────────────────────────── */
+    .income-note {
+      font-style: italic;
+      font-size: 0.88rem;
+      color: var(--muted);
+    }
+
+    /* ── Shortfall callout (Section 6) ──────────────────── */
+    .shortfall-callout {
+      margin: 1.5rem 0;
+      padding: 1.25rem 1.5rem;
+      border-left: 3px solid var(--neg);
+      background: rgba(168, 50, 50, 0.04);
+    }
+    .shortfall-callout .sf-label {
+      font-family: var(--font-ui);
+      font-size: 0.72rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--neg);
+      display: block;
+      margin-bottom: 0.2rem;
+    }
+    .shortfall-callout .sf-amount {
+      font-family: var(--font-ui);
+      font-size: 2rem;
+      font-weight: 600;
+      color: var(--neg);
+      display: block;
+      line-height: 1.2;
+    }
+
+    /* ── Levers (Section 7) ──────────────────────────────── */
+    .lever { margin-bottom: 1.6rem; }
+    .lever-title {
+      font-family: var(--font-ui);
+      font-weight: 600;
+      font-size: 0.95rem;
+      display: block;
+      margin-bottom: 0.35rem;
+    }
+
+    /* ── SLIDE MODE ──────────────────────────────────────── */
+    body.slide-mode {
+      overflow: hidden;
+      height: 100vh;
+    }
+
+    body.slide-mode .topbar {
+      position: fixed;
+      left: 0;
+      right: 0;
+      top: 0;
+    }
+
+    body.slide-mode main {
+      position: absolute;
+      top: var(--topbar-h);
+      left: 0;
+      right: 0;
+      bottom: 0;
+      overflow: hidden;
+    }
+
+    body.slide-mode #slide-track {
+      display: flex;
+      flex-direction: column;
+      transition: transform 400ms ease-in-out;
+    }
+
+    body.slide-mode section {
+      height: calc(100vh - var(--topbar-h));
+      min-height: calc(100vh - var(--topbar-h));
+      max-width: 100%;
+      overflow-y: auto;
+      flex-shrink: 0;
+      border-bottom: none;
+      padding: 2.5rem 2rem 3rem;
+      /* constrain inner content width in slide mode */
+    }
+
+    body.slide-mode section > * {
+      max-width: var(--max-w);
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    body.slide-mode .slide-indicator { display: inline; }
+
+    /* ── PRINT ───────────────────────────────────────────── */
+    @media print {
+      .no-print { display: none !important; }
+
+      body {
+        font-size: 11pt;
+        background: white;
+        color: black;
+      }
+
+      body.slide-mode {
+        overflow: visible !important;
+        height: auto !important;
+      }
+      body.slide-mode main {
+        position: static !important;
+        overflow: visible !important;
+      }
+      body.slide-mode #slide-track {
+        display: block !important;
+        transform: none !important;
+      }
+      body.slide-mode section {
+        height: auto !important;
+        min-height: 0 !important;
+        overflow: visible !important;
+      }
+
+      section {
+        page-break-inside: avoid;
+        break-inside: avoid;
+        border-bottom: 1px solid #ccc;
+        padding: 1.5rem 0;
+        max-width: 100%;
+      }
+
+      .amt-pos { color: #3a7d44; }
+      .amt-neg { color: #a83232; }
+      .shortfall-callout { border-left: 2px solid #a83232; background: none; }
+    }
+  </style>
+</head>
+<body class="scroll-mode">
+
+  <!-- ── Topbar ───────────────────────────────────────────── -->
+  <div class="topbar no-print">
+    <a href="/dashboard" class="back-link">← Dashboard</a>
+    <div class="topbar-right">
+      <span id="slide-indicator" class="slide-indicator"></span>
+      <button id="pres-btn" onclick="togglePresentationMode()">Presentation Mode</button>
+    </div>
+  </div>
+
+  <main>
+    <div id="slide-track">
+
+      <!-- ══════════════════════════════════════════════════════
+           SECTION 1 — Where We Are Right Now
+           ══════════════════════════════════════════════════════ -->
+      <section id="s1">
+        <p class="section-label">Section 1 of 7</p>
+        <h2>Where We Are Right Now</h2>
+        <p class="lede">
+          These are our current account balances as of {{ snapshot_date }}.
+          Cash and liquid accounts reflect what we hold; credit card balances
+          reflect what we owe. The gap between them is our net financial position.
+        </p>
+
+        <div class="dl-group">
+          <p class="dl-group-label">Cash on Hand</p>
+          <dl>
+            {% for name, balance in cash_accounts %}
+            <div class="dl-row">
+              <dt>{{ name }}</dt>
+              <dd>{{ balance | currency }}</dd>
+            </div>
+            {% endfor %}
+          </dl>
+          <div class="dl-total">
+            <span>Total Cash</span>
+            <span>{{ cash_total | currency }}</span>
+          </div>
+        </div>
+
+        <div class="dl-group">
+          <p class="dl-group-label">Credit Card Debt</p>
+          <dl>
+            {% for name, balance in debt_accounts %}
+            <div class="dl-row">
+              <dt>{{ name }}</dt>
+              <dd>{{ balance | currency }}</dd>
+            </div>
+            {% endfor %}
+          </dl>
+          <div class="dl-total">
+            <span>Total Debt</span>
+            <span>{{ debt_total | currency }}</span>
+          </div>
+        </div>
+
+        <div class="headline">
+          <span class="headline-label">Net Position (Cash minus Debt)</span>
+          <span class="headline-amount amt-neg">−{{ (debt_total - cash_total) | currency }}</span>
+          <p class="headline-sub">We owe {{ (debt_total - cash_total) | currency }} more than we hold in liquid accounts.</p>
+        </div>
+      </section>
+
+      <!-- ══════════════════════════════════════════════════════
+           SECTION 2 — Recent Effort
+           ══════════════════════════════════════════════════════ -->
+      <section id="s2">
+        <p class="section-label">Section 2 of 7</p>
+        <h2>Recent Effort</h2>
+        <p class="lede">
+          Total credit card debt reduced by
+          <strong class="amt-pos">${{ "{:,.2f}".format(paydown_total) }}</strong>
+          in the last ten days. These payments came from regular paychecks and
+          deliberate spending decisions — not a windfall.
+        </p>
+
+        <table class="amt-table">
+          <thead>
+            <tr>
+              <th>Card</th>
+              <th>Before</th>
+              <th>Now</th>
+              <th>Change</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for name, before, now in paydown_rows %}
+            {% set change = now - before %}
+            <tr>
+              <td>{{ name }}</td>
+              <td>{{ before | currency }}</td>
+              <td>{{ now | currency }}</td>
+              {% if change < 0 %}
+              <td class="amt-pos">−{{ (0 - change) | currency }}</td>
+              {% else %}
+              <td class="amt-neg">+{{ change | currency }}</td>
+              {% endif %}
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="3">Net reduction</td>
+              <td class="amt-pos">−{{ paydown_total | currency }}</td>
+            </tr>
+          </tfoot>
+        </table>
+
+        <p class="caveat">
+          $1,000 of the reduction went to CareCredit, our highest-balance card.
+          CapOne Quicksilver accrued $30 in interest during the same period —
+          shown above as an increase.
+        </p>
+      </section>
+
+      <!-- ══════════════════════════════════════════════════════
+           SECTION 3 — Monthly Household Reality
+           ══════════════════════════════════════════════════════ -->
+      <section id="s3">
+        <p class="section-label">Section 3 of 7</p>
+        <h2>Monthly Household Reality</h2>
+        <p class="lede">
+          After fixed expenses, ${{ "{:,.0f}".format(available_after_fixed) }}/month
+          remains for everything else — food, gas, medical, household needs,
+          and credit card payments. The structural challenge starts here.
+        </p>
+
+        <div class="dl-group">
+          <p class="dl-group-label">Recurring Income</p>
+          <dl>
+            {% for name, amount, transitioning in income_items %}
+            <div class="dl-row">
+              <dt>{{ name }}</dt>
+              {% if transitioning %}
+              <dd><span class="income-note">transitioning</span></dd>
+              {% else %}
+              <dd>${{ "{:,.0f}".format(amount) }}/mo</dd>
+              {% endif %}
+            </div>
+            {% endfor %}
+          </dl>
+          <div class="dl-total">
+            <span>Total Recurring</span>
+            <span>${{ "{:,.0f}".format(income_recurring) }}/mo</span>
+          </div>
+        </div>
+        <p class="caveat" style="margin-top: 0.5rem; margin-bottom: 1.5rem;">
+          Esports consulting work ended this month. Uber driving restarting
+          within SSDI earned-income limits ($1,620/mo SGA cap) — see Section 5.
+        </p>
+
+        <div class="dl-group">
+          <p class="dl-group-label">Fixed Monthly Expenses</p>
+          <dl>
+            {% for name, amount in fixed_items %}
+            <div class="dl-row">
+              <dt>{{ name }}</dt>
+              <dd>${{ "{:,.0f}".format(amount) }}/mo</dd>
+            </div>
+            {% endfor %}
+          </dl>
+          <div class="dl-total">
+            <span>Total Fixed</span>
+            <span>${{ "{:,.0f}".format(fixed_total) }}/mo</span>
+          </div>
+        </div>
+
+        <div class="headline">
+          <span class="headline-label">Available after fixed expenses</span>
+          <span class="headline-amount">${{ "{:,.0f}".format(available_after_fixed) }}/mo</span>
+        </div>
+      </section>
+
+      <!-- ══════════════════════════════════════════════════════
+           SECTION 4 — Variable Spending Reality
+           ══════════════════════════════════════════════════════ -->
+      <section id="s4">
+        <p class="section-label">Section 4 of 7</p>
+        <h2>Variable Spending Reality</h2>
+        <p class="lede">
+          Three-month averages from transaction data, categorized by rule.
+          Directionally accurate — not exact to the dollar. Some Walmart
+          transactions represent money order purchases for rent, which have
+          been separated out of the grocery figure.
+        </p>
+
+        <div class="dl-group">
+          <dl>
+            {% for name, amount in variable_items %}
+            <div class="dl-row">
+              <dt>{{ name }}</dt>
+              <dd class="amt-muted">~${{ "{:,.0f}".format(amount) }}/mo</dd>
+            </div>
+            {% endfor %}
+          </dl>
+          <div class="dl-total">
+            <span>Total Variable</span>
+            <span>~${{ "{:,.0f}".format(variable_total) }}/mo</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ══════════════════════════════════════════════════════
+           SECTION 5 — The Structural Gap
+           ══════════════════════════════════════════════════════ -->
+      <section id="s5">
+        <p class="section-label">Section 5 of 7</p>
+        <h2>The Structural Gap</h2>
+        <p class="lede">
+          The gap between what comes in and what goes out explains the
+          borrowing pattern. Closing it requires both Uber income and reduced
+          variable spending. With both working together, we reach break-even
+          with capacity for debt paydown.
+        </p>
+
+        <div class="calc-block">
+          <div class="calc-row">
+            <span>Recurring income (without earned)</span>
+            <span>${{ "{:,.0f}".format(income_recurring) }}/mo</span>
+          </div>
+          <div class="calc-row">
+            <span>Fixed expenses</span>
+            <span class="amt-neg">−${{ "{:,.0f}".format(fixed_total) }}/mo</span>
+          </div>
+          <div class="calc-row">
+            <span>CC minimums (estimated)</span>
+            <span class="amt-neg">−${{ "{:,.0f}".format(cc_minimums) }}/mo</span>
+          </div>
+          <div class="calc-row total">
+            <span>Available for variable spending</span>
+            <span>${{ "{:,.0f}".format(available_for_variable) }}/mo</span>
+          </div>
+          <div class="calc-row gap-row">
+            <span>Actual variable spending</span>
+            <span class="amt-neg">${{ "{:,.0f}".format(variable_total) }}/mo</span>
+          </div>
+          <div class="calc-row fw-bold">
+            <span>Monthly gap (without earned income)</span>
+            <span class="amt-neg">−${{ "{:,.0f}".format(gap_without_earned) }}/mo</span>
+          </div>
+        </div>
+
+        <div class="scenario-block">
+          <p class="scenario-label">
+            With Uber income (${{ "{:,.0f}".format(uber_income) }}/mo, within SSDI SGA limit)
+          </p>
+          <div class="calc-block">
+            <div class="calc-row">
+              <span>Total income</span>
+              <span>${{ "{:,.0f}".format(total_with_uber) }}/mo</span>
+            </div>
+            <div class="calc-row total">
+              <span>Available for variable</span>
+              <span>${{ "{:,.0f}".format(available_with_uber) }}/mo</span>
+            </div>
+            <div class="calc-row">
+              <span>If variable cuts to $2,200/mo</span>
+              <span class="amt-pos fw-bold">+${{ "{:,.0f}".format(surplus_if_cut) }}/mo surplus</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ══════════════════════════════════════════════════════
+           SECTION 6 — This Month's Specific Need
+           ══════════════════════════════════════════════════════ -->
+      <section id="s6">
+        <p class="section-label">Section 6 of 7</p>
+        <h2>This Month's Specific Need</h2>
+        <p class="lede">
+          Rent is due {{ rent_due_date }}. BoA is drained from prior
+          obligations. Chase Checking holds the most liquid cash but cannot
+          cover the full amount on its own.
+        </p>
+
+        <div class="dl-group">
+          <p class="dl-group-label">Rent-paying accounts</p>
+          <dl>
+            <div class="dl-row">
+              <dt>Chase Checking</dt>
+              <dd>{{ rent_checking | currency }}</dd>
+            </div>
+            <div class="dl-row">
+              <dt>BoA Adv Plus</dt>
+              <dd>{{ rent_boa | currency }}</dd>
+            </div>
+          </dl>
+          <div class="dl-total">
+            <span>Available</span>
+            <span>{{ rent_available | currency }}</span>
+          </div>
+        </div>
+
+        <div class="shortfall-callout">
+          <span class="sf-label">Shortfall to cover {{ rent_due_date }} rent</span>
+          <span class="sf-amount">{{ rent_shortfall | currency }}</span>
+        </div>
+
+        <p class="caveat">
+          Without help, May rent cannot be fully paid by Friday.
+          The next paycheck is pending but insufficient to close the gap alone.
+        </p>
+      </section>
+
+      <!-- ══════════════════════════════════════════════════════
+           SECTION 7 — Plan To Reduce Future Asks
+           ══════════════════════════════════════════════════════ -->
+      <section id="s7">
+        <p class="section-label">Section 7 of 7</p>
+        <h2>Plan To Reduce Future Asks</h2>
+        <p class="lede">
+          Three levers. Each one changes the monthly math meaningfully.
+          Together, they get us to a position where external help is
+          rarely needed.
+        </p>
+
+        <div class="lever">
+          <span class="lever-title">Income — restart Uber driving</span>
+          <p>
+            Within SSDI earned-income limits ($1,620/mo SGA cap). Target
+            $1,000–$1,500/month, starting immediately. At that level we
+            operate at or near break-even without needing additional cuts.
+          </p>
+        </div>
+
+        <div class="lever">
+          <span class="lever-title">Expenses — audit variable spending</span>
+          <p>
+            Target $500–$1,000/month in reductions: dining and DoorDash
+            ($300/mo, mostly cuttable), Amazon ($200/mo, can shrink),
+            subscriptions ($80/mo, find unused ones), and grocery discipline
+            — list-based shopping, less prepared food.
+          </p>
+        </div>
+
+        <div class="lever">
+          <span class="lever-title">Debt — continue aggressive CareCredit paydown</span>
+          <p>
+            We reduced CareCredit by $1,000 in the last ten days. At
+            that pace, CareCredit clears in under three months, freeing
+            approximately $180/mo currently going to minimum payments.
+          </p>
+        </div>
+
+        <p class="lede" style="margin-top: 1.75rem;">
+          We expect this to be the largest ask of the year. Each subsequent
+          month should require less. The goal is to reach a place where we
+          ask for help in genuinely lean months — not structurally, every month.
+        </p>
+      </section>
+
+    </div><!-- /#slide-track -->
+  </main>
+
+  <!-- ── Slide navigation JS ─────────────────────────────── -->
+  <script>
+    (function () {
+      'use strict';
+
+      var body      = document.body;
+      var track     = document.getElementById('slide-track');
+      var sections  = Array.from(track.querySelectorAll('section'));
+      var indicator = document.getElementById('slide-indicator');
+      var btn       = document.getElementById('pres-btn');
+      var current   = 0;
+      var inSlide   = false;
+
+      function topbarHeight() {
+        var raw = getComputedStyle(document.documentElement)
+          .getPropertyValue('--topbar-h').trim();
+        return parseInt(raw, 10) || 44;
+      }
+
+      function slideHeight() {
+        return window.innerHeight - topbarHeight();
+      }
+
+      function updateIndicator() {
+        indicator.textContent = (current + 1) + ' / ' + sections.length;
+      }
+
+      function goTo(n) {
+        current = Math.max(0, Math.min(n, sections.length - 1));
+        track.style.transform =
+          'translateY(-' + (current * slideHeight()) + 'px)';
+        updateIndicator();
+      }
+
+      function enter() {
+        inSlide = true;
+        current = 0;
+        /* Suppress transition so the track snaps to slide 0 without
+           animating from whatever scroll position it was at. */
+        track.style.transition = 'none';
+        track.style.transform  = 'translateY(0)';
+        body.classList.remove('scroll-mode');
+        body.classList.add('slide-mode');
+        btn.textContent = 'Exit Presentation';
+        updateIndicator();
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () {
+            track.style.transition = '';
+          });
+        });
+      }
+
+      function exit() {
+        inSlide = false;
+        track.style.transition = 'none';
+        body.classList.remove('slide-mode');
+        body.classList.add('scroll-mode');
+        track.style.transform = '';
+        btn.textContent = 'Presentation Mode';
+        indicator.textContent = '';
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () {
+            track.style.transition = '';
+          });
+        });
+      }
+
+      window.togglePresentationMode = function () {
+        if (inSlide) { exit(); } else { enter(); }
+      };
+
+      /* Re-snap on resize so slides don't drift */
+      window.addEventListener('resize', function () {
+        if (!inSlide) { return; }
+        track.style.transition = 'none';
+        goTo(current);
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () {
+            track.style.transition = '';
+          });
+        });
+      });
+
+      document.addEventListener('keydown', function (e) {
+        /* 'p' toggles regardless of mode */
+        if (e.key === 'p' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          e.preventDefault();
+          if (inSlide) { exit(); } else { enter(); }
+          return;
+        }
+
+        if (!inSlide) { return; }
+
+        switch (e.key) {
+          case ' ':
+            e.preventDefault();
+            goTo(e.shiftKey ? current - 1 : current + 1);
+            break;
+          case 'Backspace':
+            e.preventDefault();
+            goTo(current - 1);
+            break;
+          case 'ArrowRight':
+          case 'ArrowDown':
+            e.preventDefault();
+            goTo(current + 1);
+            break;
+          case 'ArrowLeft':
+          case 'ArrowUp':
+            e.preventDefault();
+            goTo(current - 1);
+            break;
+          case 'Escape':
+            exit();
+            break;
+        }
+      });
+    }());
+  </script>
+
+</body>
+</html>
