@@ -1559,6 +1559,14 @@ def process_uploaded_statement_files(uploads_dir, statements_dir):
     # 1) Normalize uploads -> *_ocr.txt in statements_dir
     # --------------------------------------------------
     txt_paths = []
+    all_rows = []   # populated incrementally (CSV parsers) and in section 2
+
+    # Clear Venmo skip log at the start of each import run.
+    try:
+        from pathlib import Path as _Path
+        _Path("/tmp/venmo-skipped.log").write_text("")
+    except Exception:
+        pass
 
     for src in sorted(uploads_dir.iterdir()):
         if not src.is_file():
@@ -1575,6 +1583,33 @@ def process_uploaded_statement_files(uploads_dir, statements_dir):
                 stats["saved_files"] += 1
             except Exception as e:
                 print(f"[OCR] Failed to copy txt {src}: {e}")
+            continue
+
+        # Venmo CSV — detect by header content and route immediately.
+        if ext == ".csv":
+            try:
+                raw_csv = src.read_text(errors="ignore")[:800]
+            except Exception:
+                raw_csv = ""
+            if "Account Activity" in raw_csv and "Funding Source" in raw_csv:
+                try:
+                    from parsers.venmo_csv_parser import parse_venmo_csv
+                    from pathlib import Path as _Path
+                    _skip_log = _Path("/tmp/venmo-skipped.log")
+                    venmo_rows, venmo_meta = parse_venmo_csv(src, skip_log=_skip_log)
+                    all_rows.extend(venmo_rows)
+                    stats["saved_files"] += 1
+                    print(
+                        f"[Venmo] {src.name}: "
+                        f"{len(venmo_rows)} rows  "
+                        f"begin=${venmo_meta['begin']:.2f}  "
+                        f"end=${venmo_meta['end']:.2f}  "
+                        f"fees=${venmo_meta['period_fees']:.2f}"
+                    )
+                except Exception as e:
+                    print(f"[OCR] Venmo CSV parse failed for {src}: {e}")
+            else:
+                print(f"[OCR] Skipping unrecognised CSV: {src.name}")
             continue
 
         # PDF / PNG / JPG / JPEG -> run OCR
@@ -1595,7 +1630,6 @@ def process_uploaded_statement_files(uploads_dir, statements_dir):
     # --------------------------------------------------
     # 2) Parse *_ocr.txt -> normalized row dicts
     # --------------------------------------------------
-    all_rows = []
 
     for txt in txt_paths:
         # 0) Chase statement-detail block parser — highest priority.

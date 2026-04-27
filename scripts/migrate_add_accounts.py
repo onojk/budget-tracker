@@ -22,6 +22,7 @@ SEED_ACCOUNTS = [
     {"name": "BoA Adv Plus",    "institution": "Bank of America", "last4": "0205"},
     {"name": "Chase Checking",  "institution": "JPMorgan Chase",  "last4": "9765"},
     {"name": "Chase Savings",   "institution": "JPMorgan Chase",  "last4": "9383"},
+    {"name": "Venmo",           "institution": "Venmo",           "last4": None},
 ]
 
 with app.app_context():
@@ -62,8 +63,7 @@ with app.app_context():
     # go to savings; everything else in JPMorgan goes to checking.
 
     chase_txs = Transaction.query.filter(
-        Transaction.source_system.in_(["Statement OCR", "Chase PDF"])
-        | Transaction.account_name.ilike("Chase%")
+        Transaction.account_name.ilike("Chase%")
     ).all()
 
     updated = 0
