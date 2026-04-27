@@ -1639,6 +1639,18 @@ def process_uploaded_statement_files(uploads_dir, statements_dir):
             raw_text = txt.read_text(errors="replace")
         except Exception:
             raw_text = ""
+        # Capital One PDF detection — check before BoA/Chase.
+        if "capitalone.com" in raw_text and "Trans Date" in raw_text and "ending in" in raw_text:
+            try:
+                from parsers.capitalone_pdf_parser import parse_capitalone_statement_text
+                capone_rows, capone_meta = parse_capitalone_statement_text(raw_text, txt.name)
+            except Exception as e:
+                print(f"[OCR] Capital One parse failed for {txt}: {e}")
+                capone_rows = []
+            if capone_rows:
+                all_rows.extend(capone_rows)
+                continue
+
         # BoA detection — check before Chase so combined PDFs aren't misrouted.
         if "bank of america" in raw_text[:2000].lower():
             try:

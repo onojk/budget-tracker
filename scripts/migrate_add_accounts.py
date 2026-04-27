@@ -19,10 +19,12 @@ from app import app
 from models import db, Account, Transaction
 
 SEED_ACCOUNTS = [
-    {"name": "BoA Adv Plus",    "institution": "Bank of America", "last4": "0205"},
-    {"name": "Chase Checking",  "institution": "JPMorgan Chase",  "last4": "9765"},
-    {"name": "Chase Savings",   "institution": "JPMorgan Chase",  "last4": "9383"},
-    {"name": "Venmo",           "institution": "Venmo",           "last4": None},
+    {"name": "BoA Adv Plus",         "institution": "Bank of America", "last4": "0205"},
+    {"name": "Chase Checking",       "institution": "JPMorgan Chase",  "last4": "9765"},
+    {"name": "Chase Savings",        "institution": "JPMorgan Chase",  "last4": "9383"},
+    {"name": "Venmo",                "institution": "Venmo",           "last4": None},
+    {"name": "CapOne Platinum 0728", "institution": "Capital One",     "last4": "0728"},
+    {"name": "CapOne Quicksilver 7398", "institution": "Capital One",  "last4": "7398"},
 ]
 
 with app.app_context():
