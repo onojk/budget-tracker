@@ -1,0 +1,16 @@
+                                              January 1, 2025 through February 1, 2025
+JPMorgan Chase Bank, N.A.
+P O Box 182051
+Columbus, OH 43218-2051
+
+Primary Account: 000000000000000
+
+*start*transaction detail
+TRANSACTION DETAIL
+DATE DESCRIPTION AMOUNT BALANCE
+Beginning Balance                                                                          1,000.00
+             01/05     Grocery Stop Market                                         -45.67       954.33
+             01/10     ACH Credit Payroll                                       1,500.00     2,454.33
+             01/15     Card Purchase Online Retailer                               -99.99     2,354.34
+             01/20     ATM Cash Withdrawal                                         -60.00     2,294.34
+*end*transaction detail

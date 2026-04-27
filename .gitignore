@@ -17,8 +17,9 @@ uploads/
 *.jpg
 *.jpeg
 *.txt
-# But do track requirements files
+# But do track requirements files and test fixtures
 !requirements*.txt
+!tests/fixtures/*.txt
 
 # Database (contains actual transactions)
 *.db
