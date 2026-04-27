@@ -1,0 +1,77 @@
+                                                                                                                                                                                                                                                                             Page 1 of 3
+                                                                                                                                                                                                                                                                         TEST USER
+                                                                                                                                                                                                                                                                       Account number: 8888
+                                                                                                                                                                                                                                         Visit us at www.paypal.com or Call 1-555-000-0000
+
+                                                                                                                                                                                                                                               Payments must be received by 5pm ET on
+New balance                                                                                                                                                   $305.00                                                                          02/15/2026 if mailed.
+Minimum payment due                                                                                                                                            $29.00
+Payment due date                                                                                                                                           02/15/2026
+
+Account summary
+Previous balance as of 01/02/2026                                                                                                                                                                                                      $300.00         Credit limit              $500
+Payments                                                                                                                                                                                                                               - 50.00         Available credit           $195
+Purchases & other debits                                                                                                                                                                                                               + 45.00
+Interest charges                                                                                                                                                                                                                       + 10.00
+
+New balance as of 01/31/2026                                                                                                                                                                                                           $305.00      Cashback Snapshot
+29 day billing cycle from 01/02/2026 to 01/31/2026                                                                                                                                                                                              Cashback Earned this Period        $0.25
+                                                                                                                                                                                                                                                 Current Cashback Balance           $1.00
+
+
+
+
+                                                                                                                                                  Save a stamp, pay on-line.                                                                      Account Number                 xxxx xxxx xxxx 8888
+                                                                                                                                                                                                                                                  New balance                                $305.00
+                                                                                                                                                                                                                                                  Minimum payment due                         $29.00
+                                                                                                                                                                                                                                                  Payment due date                       02/15/2026
+
+                                                                                                                                                                                                                                                  Amount enclosed $
+
+
+
+
+                                                               TEST USER
+                                                               [ADDRESS]
+                                                               [CITY] [STATE] [ZIP]-6475                                                                                Make payment to: PAYPAL CREDIT SVCS/SYNCB
+                                                                                                                                                                                                                                                      PO BOX 71718
+                                                                                                                                                                                                                                                      PHILADELPHIA, PA 19176-1718
+
+
+
+
+00029000003050000029000030500000052185300000011893868800
+                                                                                                                    Page 2 of 3
+                                                                                                        TEST USER
+                                                                                                      Account number: 8888
+                                                                            Visit us at www.paypal.com or Call 1-555-000-0000
+
+
+Transaction details
+Date       Reference #                      Description                                                                      Amount
+Payments                                                                                                                     -$50.00
+01/05      ABCDE12345FGHIJ67                PAYMENT - THANK YOU                                                               -$50.00
+Purchases and Other Debits                                                                                                    $45.00
+01/15      ABCDE12345FGHIJ68                SOME MERCHANT PURCHASE                                                             $30.00
+01/20      ABCDE12345FGHIJ69                SOME KIND OF FEE                                                                   $15.00
+Total Fees Charged This Period                                                                                                 $15.00
+Total Interest Charged This Period                                                                                             $10.00
+01/31                                       INTEREST CHARGE ON PURCHASES &                                                     $10.00
+                                            BALANCE TRANSFERS
+01/31                                       INTEREST CHARGE ON CASH ADVANCES                                                    $0.00
+
+
+                                                                                         2026 Year to date fees and interest
+                                                                                        Total fees charged                   $15.00
+                                                                                        Total interest charged               $10.00
+                                                                                        Total interest paid                  $50.00
+
+
+
+Interest charge calculation
+Your Annual Percentage Rate (APR) is the annual interest rate on your account.
+
+    Type of balance                        Expiration date       (APR) Annual           Balance subject          Interest charge
+                                                                 percentage rate        to interest rate
+    Purchases & Balance Transfers          N/A                   30.24% (v)             $290.00                  $10.00
+    Cash advances                          N/A                   33.24% (v)             $0.00                    $0.00
