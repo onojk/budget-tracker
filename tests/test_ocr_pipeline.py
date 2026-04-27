@@ -30,19 +30,24 @@ def test_parse_chase_transaction_detail_extracts_rows():
     assert rows[0]["Direction"] == "debit"
     assert rows[0]["Source"] == "Statement OCR"
 
-    # Row 1: credit payroll deposit
+    # Row 1: credit payroll deposit — ACH prefix stripped from merchant
     assert rows[1]["Date"] == "2025-01-10"
     assert rows[1]["Amount"] == pytest.approx(1500.00)
-    assert rows[1]["Merchant"] == "ACH Credit Payroll"
+    assert rows[1]["Merchant"] == "Payroll"
+    assert rows[1]["Description"] == "ACH Credit Payroll"
     assert rows[1]["Direction"] == "credit"
 
-    # Row 2: debit card purchase
+    # Row 2: debit card purchase — prefix + state/Card suffix stripped
     assert rows[2]["Date"] == "2025-01-15"
     assert rows[2]["Amount"] == pytest.approx(-99.99)
+    assert rows[2]["Merchant"] == "Online Retailer"
+    assert rows[2]["Description"] == "Card Purchase 01/15 Online Retailer CA Card"
 
-    # Row 3: debit ATM withdrawal
+    # Row 3: debit ATM withdrawal — normalized to "ATM Withdrawal"
     assert rows[3]["Date"] == "2025-01-20"
     assert rows[3]["Amount"] == pytest.approx(-60.00)
+    assert rows[3]["Merchant"] == "ATM Withdrawal"
+    assert rows[3]["Description"] == "ATM Cash Withdrawal"
 
 
 # ---------------------------------------------------------------------------

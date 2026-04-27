@@ -1002,6 +1002,52 @@ def _extract_statement_years(txt: str):
     return None, None
 
 
+_CARD_PREFIX_RE = re.compile(
+    r"^(?:Recurring\s+)?Card\s+Purchase(?:\s+With\s+Pin)?\s+\d{2}/\d{2}\s+",
+    re.IGNORECASE,
+)
+_CARD_SUFFIX_RE = re.compile(
+    r"(?:\s+\d{3}-\d{3}-\d{4})?\s+[A-Z]{2}\s+Card\s*$"
+)
+_ACH_RE = re.compile(r"^ACH\s+(?:Credit|Debit)\s+", re.IGNORECASE)
+_ZELLE_RE = re.compile(r"^Zelle\s+Payment\s+(?:To|From)\s+", re.IGNORECASE)
+_ONLINE_PAYMENT_RE = re.compile(r"^Online\s+Payment\s+\d+\s+To\s+", re.IGNORECASE)
+_ATM_RE = re.compile(r"^ATM\s+(?:Cash\s+)?Withdrawal\b", re.IGNORECASE)
+_DEPOSIT_RE = re.compile(r"^Deposit(?:\s+\d+)?\b", re.IGNORECASE)
+
+
+def _split_chase_merchant(raw_line: str):
+    """
+    Split a raw Chase transaction description into (merchant, description).
+    description is always the unchanged raw_line.
+    merchant strips the transaction-type prefix, inline MM/DD date, and
+    trailing phone/state/Card noise for card purchases.
+    Falls through unchanged if no known prefix matches.
+    """
+    m = _CARD_PREFIX_RE.match(raw_line)
+    if m:
+        rest = _CARD_SUFFIX_RE.sub("", raw_line[m.end():]).strip()
+        return rest or raw_line, raw_line
+
+    if _ACH_RE.match(raw_line):
+        return _ACH_RE.sub("", raw_line).strip() or raw_line, raw_line
+
+    if _ZELLE_RE.match(raw_line):
+        return _ZELLE_RE.sub("", raw_line).strip() or raw_line, raw_line
+
+    m = _ONLINE_PAYMENT_RE.match(raw_line)
+    if m:
+        return raw_line[m.end():].strip() or raw_line, raw_line
+
+    if _ATM_RE.match(raw_line):
+        return "ATM Withdrawal", raw_line
+
+    if _DEPOSIT_RE.match(raw_line):
+        return "Deposit", raw_line
+
+    return raw_line, raw_line
+
+
 def _iter_transaction_lines(txt: str):
     """
     Yield lines inside the *start*transaction detail ... block.
@@ -1064,6 +1110,7 @@ def _parse_chase_transaction_detail(path: Path):
 
         iso_date = f"{year:04d}-{month:02d}-{day:02d}"
         desc_clean = " ".join(desc.split())
+        merchant, description = _split_chase_merchant(desc_clean)
         note = f"from {path.name}"
 
         rows.append(
@@ -1073,8 +1120,8 @@ def _parse_chase_transaction_detail(path: Path):
                 "Direction": direction,
                 "Source": "Statement OCR",
                 "Account": "",
-                "Merchant": desc_clean,
-                "Description": desc_clean,
+                "Merchant": merchant,
+                "Description": description,
                 "Category": "",
                 "Notes": note,
             }

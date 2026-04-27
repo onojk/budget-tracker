@@ -11,6 +11,6 @@ DATE DESCRIPTION AMOUNT BALANCE
 Beginning Balance                                                                          1,000.00
              01/05     Grocery Stop Market                                         -45.67       954.33
              01/10     ACH Credit Payroll                                       1,500.00     2,454.33
-             01/15     Card Purchase Online Retailer                               -99.99     2,354.34
+             01/15     Card Purchase 01/15 Online Retailer CA Card                 -99.99     2,354.34
              01/20     ATM Cash Withdrawal                                         -60.00     2,294.34
 *end*transaction detail
