@@ -1139,8 +1139,16 @@ def _parse_chase_transaction_detail(path: Path):
 
         year = current_year or (end_year or start_year or _date_cls.today().year)
 
-        ctx = f"{desc} {amt_str}"
-        amt_signed = parse_signed_amount(amt_str, context=ctx)
+        # Chase PDF format encodes direction in the amount column explicitly:
+        # debits carry a leading '-', credits have no sign prefix.
+        # Trusting the explicit sign avoids keyword-matching misfires such as
+        # "payment" in DEBIT_HINT_WORDS firing on "Ebay Compduytyu6 Payments"
+        # or "Zelle Payment From", which are both inbound credits.
+        if amt_str.startswith('-'):
+            magnitude = abs(float(amt_str.replace(',', '')))
+            amt_signed = -magnitude
+        else:
+            amt_signed = float(amt_str.replace(',', ''))
         direction = "debit" if amt_signed < 0 else "credit"
 
         iso_date = f"{year:04d}-{month:02d}-{day:02d}"
