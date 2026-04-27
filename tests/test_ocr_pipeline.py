@@ -50,6 +50,13 @@ def test_parse_chase_transaction_detail_extracts_rows():
     assert rows[3]["Merchant"] == "ATM Withdrawal"
     assert rows[3]["Description"] == "ATM Cash Withdrawal"
 
+    # Account detection: blocks preceded by different Account Number: lines
+    # should be tagged with the correct account names.
+    assert rows[0]["Account"] == "Chase Checking", f"Row 0 account: {rows[0]['Account']}"
+    assert rows[1]["Account"] == "Chase Checking", f"Row 1 account: {rows[1]['Account']}"
+    assert rows[2]["Account"] == "Chase Savings",  f"Row 2 account: {rows[2]['Account']}"
+    assert rows[3]["Account"] == "Chase Savings",  f"Row 3 account: {rows[3]['Account']}"
+
 
 # ---------------------------------------------------------------------------
 # 3. Merchant extraction helper

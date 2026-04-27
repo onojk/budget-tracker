@@ -1,0 +1,24 @@
+Bank of America
+Advantage Plus Banking
+Account # XXXX XXXX XXXX 0205
+Statement Period: 01/01/24 through 01/31/24
+
+Beginning balance on 01/01/24                                      $4,250.00
+
+Deposits and other additions
+Date        Description                                    Amount
+01/03/24    Payroll Direct Deposit Employer XYZ           1,835.43
+01/15/24    Zelle From John Smith                           500.00
+
+Withdrawals and other subtractions
+Date        Description                                    Amount
+01/05/24    Card Purchase Amazon.Com                        89.99
+01/08/24    ATM Withdrawal 123 Main St                     200.00
+01/20/24    Money Order Walmart Supercenter                300.00
+01/25/24    Transfer To CHK 5072                           750.00
+
+Service charges and fees
+Date        Description                                    Amount
+01/31/24    Monthly Maintenance Fee                         12.00
+
+Ending balance on 01/31/24                                         $5,233.44

@@ -3,7 +3,10 @@ JPMorgan Chase Bank, N.A.
 P O Box 182051
 Columbus, OH 43218-2051
 
-Primary Account: 000000000000000
+*start*global product
+Account Number: 000000000009765
+Chase Total Checking
+*end*global product
 
 *start*transaction detail
 TRANSACTION DETAIL
@@ -15,6 +18,11 @@ Beginning Balance                                                               
 
 --- Page 2 ---
 CONTINUED TRANSACTION DETAIL
+
+*start*global product
+Account Number: 000000000009383
+Chase Savings
+*end*global product
 
 *start*transaction detail
 TRANSACTION DETAIL

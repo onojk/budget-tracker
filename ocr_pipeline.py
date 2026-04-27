@@ -1068,10 +1068,21 @@ def _iter_transaction_lines(txt: str):
             yield line
 
 
+_CHASE_ACCT_RE = re.compile(r"Account Number:\s*(\d{7,})")
+_CHASE_KNOWN_ACCOUNTS = {
+    "9765": "Chase Checking",
+    "9383": "Chase Savings",
+}
+
+
 def _parse_chase_transaction_detail(path: Path):
     """
     Parse a single _ocr.txt file in the Chase table layout and return a list
     of dicts compatible with the Transaction insertion logic.
+
+    Account detection: scans for "Account Number: XXXXXXXX####" lines that
+    appear in *global product* blocks before each transaction detail section
+    and tags every row with the correct account name.
     """
     try:
         txt = path.read_text(errors="ignore")
@@ -1087,8 +1098,27 @@ def _parse_chase_transaction_detail(path: Path):
     )
 
     rows = []
+    in_block = False
+    current_account_name = "Chase Checking"  # safe default
 
-    for line in _iter_transaction_lines(txt):
+    for line in txt.splitlines():
+        # Track account number from global product headers.
+        acct_m = _CHASE_ACCT_RE.search(line)
+        if acct_m:
+            last4 = acct_m.group(1)[-4:]
+            current_account_name = _CHASE_KNOWN_ACCOUNTS.get(
+                last4, f"Chase ...{last4}"
+            )
+
+        if "*start*transaction detail" in line:
+            in_block = True
+            continue
+        if in_block and line.strip().startswith("*end*"):
+            in_block = False
+            continue
+        if not in_block:
+            continue
+
         m = line_re.match(line)
         if not m:
             continue
@@ -1124,7 +1154,7 @@ def _parse_chase_transaction_detail(path: Path):
                 "Amount": float(amt_signed),
                 "Direction": direction,
                 "Source": "Statement OCR",
-                "Account": "",
+                "Account": current_account_name,
                 "Merchant": merchant,
                 "Description": description,
                 "Category": "",
@@ -1176,6 +1206,105 @@ def _parse_chase_transaction_detail(path: Path):
         )
 
     return rows
+
+
+# ----------------------------------------------------------------------
+# Bank of America statement parsing
+# ----------------------------------------------------------------------
+
+_BOA_ACCT_RE = re.compile(
+    r"Account\s*#\s*[\dX *-]*([\d]{4})", re.IGNORECASE
+)
+_BOA_LINE_RE = re.compile(
+    r"^\s*(\d{2}/\d{2}/\d{2})\s{2,}(.+?)\s{2,}\$?([\d,]+\.\d{2})\s*$"
+)
+_BOA_DEPOSIT_HEADERS = (
+    "deposits and other additions",
+    "other additions",
+)
+_BOA_WITHDRAWAL_HEADERS = (
+    "withdrawals and other subtractions",
+    "other subtractions",
+    "service charges and fees",
+    "checks",
+)
+_BOA_KNOWN_ACCOUNTS = {
+    "0205": "BoA Adv Plus",
+}
+
+
+def parse_boa_statement_text(path: Path) -> list:
+    """
+    Parse a Bank of America statement OCR text file.
+
+    Direction is inferred from section headers:
+      'Deposits and other additions'  → credit (positive)
+      'Withdrawals and other subtractions' / 'Service charges and fees' → debit (negative)
+
+    Date format: MM/DD/YY  (2-digit year, 00-68 → 2000-2068).
+    """
+    try:
+        txt = path.read_text(errors="ignore")
+    except Exception:
+        return []
+
+    # Detect account last4 from "Account # XXXX XXXX XXXX 0205" style headers.
+    acct_m = _BOA_ACCT_RE.search(txt)
+    last4 = acct_m.group(1) if acct_m else ""
+    account_name = _BOA_KNOWN_ACCOUNTS.get(last4, f"BoA ...{last4}" if last4 else "BoA")
+
+    current_direction = None
+    rows = []
+
+    for line in txt.splitlines():
+        lower = line.lower().strip()
+
+        if any(h in lower for h in _BOA_DEPOSIT_HEADERS):
+            current_direction = "credit"
+            continue
+        if any(h in lower for h in _BOA_WITHDRAWAL_HEADERS):
+            current_direction = "debit"
+            continue
+
+        if current_direction is None:
+            continue
+
+        m = _BOA_LINE_RE.match(line)
+        if not m:
+            continue
+
+        date_str, desc, amt_str = m.groups()
+        try:
+            d = _date_cls(*(int(x) for x in _parse_boa_date(date_str)))
+        except Exception:
+            continue
+
+        magnitude = float(amt_str.replace(",", ""))
+        amount = magnitude if current_direction == "credit" else -magnitude
+        desc_clean = " ".join(desc.split())
+
+        rows.append(
+            {
+                "Date": str(d),
+                "Amount": amount,
+                "Direction": current_direction,
+                "Source": "Statement OCR",
+                "Account": account_name,
+                "Merchant": desc_clean,
+                "Description": desc_clean,
+                "Category": "",
+                "Notes": f"from {path.name}",
+            }
+        )
+
+    return rows
+
+
+def _parse_boa_date(date_str: str):
+    """Return (year, month, day) from MM/DD/YY, mapping YY 00-68 → 20xx."""
+    mm, dd, yy = date_str.split("/")
+    year = 2000 + int(yy) if int(yy) <= 68 else 1900 + int(yy)
+    return year, int(mm), int(dd)
 
 
 # ----------------------------------------------------------------------
@@ -1476,6 +1605,17 @@ def process_uploaded_statement_files(uploads_dir, statements_dir):
             raw_text = txt.read_text(errors="replace")
         except Exception:
             raw_text = ""
+        # BoA detection — check before Chase so combined PDFs aren't misrouted.
+        if "bank of america" in raw_text[:2000].lower():
+            try:
+                boa_rows = parse_boa_statement_text(txt)
+            except Exception as e:
+                print(f"[OCR] BoA parse failed for {txt}: {e}")
+                boa_rows = []
+            if boa_rows:
+                all_rows.extend(boa_rows)
+                continue
+
         if "*start*transaction detail" in raw_text:
             try:
                 detail_rows = _parse_chase_transaction_detail(txt)

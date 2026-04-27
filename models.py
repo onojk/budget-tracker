@@ -4,6 +4,20 @@ from flask_sqlalchemy import SQLAlchemy
 db = SQLAlchemy()
 
 
+class Account(db.Model):
+    __tablename__ = "account"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(64), nullable=False, unique=True)
+    institution = db.Column(db.String(64), nullable=False)
+    last4 = db.Column(db.String(4), nullable=True)
+
+    transactions = db.relationship("Transaction", back_populates="account", lazy="select")
+
+    def __repr__(self):
+        return f"<Account {self.institution} ...{self.last4}>"
+
+
 class Transaction(db.Model):
     __tablename__ = "transaction"
 
@@ -38,6 +52,9 @@ class Transaction(db.Model):
     description = db.Column(db.String(256))
     category = db.Column(db.String(64))
     notes = db.Column(db.String(256))
+
+    account_id = db.Column(db.Integer, db.ForeignKey("account.id"), nullable=True)
+    account = db.relationship("Account", back_populates="transactions")
 
     def to_dict(self):
         return {

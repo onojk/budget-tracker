@@ -38,7 +38,7 @@ from datetime import date as _date
 import pandas as _pd
 from sqlalchemy import and_
 
-from models import db, Transaction
+from models import db, Transaction, Account
 
 
 def _normalize_date(raw_date):
@@ -73,6 +73,9 @@ def import_ocr_rows(rows, default_source="Screenshot OCR", default_account=""):
     """
     inserted = 0
     skipped = 0
+
+    # Build account name → id lookup once per call (cheap, avoids per-row queries).
+    _acct_map = {a.name: a.id for a in Account.query.all()}
 
     for raw in rows:
         raw_date = raw.get("Date")
@@ -123,6 +126,7 @@ def import_ocr_rows(rows, default_source="Screenshot OCR", default_account=""):
             description=description,
             category=category,
             notes=notes,
+            account_id=_acct_map.get(account),
         )
 
         db.session.add(tx)
