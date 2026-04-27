@@ -1,0 +1,13 @@
+Account Statement - (@Test-User) ,,,,,,,,,,,,,,,,,,,,,
+Account Activity,,,,,,,,,,,,,,,,,,,,,
+,ID,Datetime,Type,Status,Note,From,To,Amount (total),Amount (tip),Amount (tax),Amount (fee),Tax Rate,Tax Exempt,Funding Source,Destination,Beginning Balance,Ending Balance,Statement Period Venmo Fees,Terminal Location,Year to Date Venmo Fees,Disclaimer
+,,,,,,,,,,,,,,,,$10.00,,,,,
+,1001,2026-02-05T12:00:00,Payment,Complete,pizza,Alice Smith,Test User,+ $25.00,,0,,0,,,Venmo balance,,,,Venmo,,
+,1002,2026-02-06T14:00:00,Payment,Complete,coffee,Test User,Bob Jones,- $15.00,,0,,0,,,Venmo balance,,,,Venmo,,
+,1003,2026-02-10T09:00:00,Venmo Card Transaction,Complete,,Test User,Coffee Shop,- $5.00,,,,,,Venmo balance,,,,,"City, CA",,
+,1004,2026-02-15T18:00:00,Merchant Transaction,Complete,,Test User,DoorDash,- $3.00,,,,,,Venmo balance,,,,Venmo,,
+,1005,2026-02-16T20:00:00,Merchant Transaction,Complete,,Test User,Restaurant,- $38.87,,,,,,BANK OF AMERICA N.A. Personal Checking *0205,,,,Venmo,,
+,1006,2026-02-20T10:00:00,Instant Add Funds,Complete,,,,+ $50.00,,,,,,Visa *3253,,,,,Venmo,,
+,1007,2026-02-20T10:01:00,Instant Transfer,Complete,,,,- $50.00,,,- $0.88,,,,Jpmorgan Chase Bank *9765,,,,Venmo,,
+,1008,2026-02-28T09:00:00,Venmo account repayment,Complete,,Test User,Venmo,+ $5.00,,,,,,Visa *3253,,,,Venmo,,
+,,,,,,,,,,,,,,,,,$11.12,$0.88,,$1.76,"Disclaimer text goes here."

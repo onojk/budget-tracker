@@ -104,6 +104,19 @@ PUT  /api/transactions/<id>           Update one field on a transaction
    `sum(transaction amounts for the period) == ending_balance - beginning_balance`
    (to within 1 cent). The bank's own statement figures are ground truth.
 
+### Reconciliation expectations
+
+- **Chase / BoA**: closed ledgers — `sum(imported) == ending − beginning` to the
+  cent. Any deviation is a parser bug.
+- **Venmo**: NOT a closed ledger. The CSV omits internal Venmo adjustments
+  (deferred settlements, card pre-auth, overdraft handling). Gaps of $20–$150
+  per statement are expected:
+  - Feb 2026: −$19, Mar 2026: −$94, Apr 2026: +$136 (after dedup)
+  `parse_venmo_csv` logs the gap at import time. If a gap grows substantially
+  larger or flips character, investigate — could be a new transaction type or
+  parser regression. Do not attempt to "fix" the Venmo reconciliation by
+  adjusting parser logic.
+
 ## What NOT to do
 
 - `archive/` holds old broken experiments (`ZEN_LION_*`, `*_BOMB.py`,
@@ -122,7 +135,7 @@ Long-term: multi-user, mobile responsive, cloud sync.
 
 ## Testing
 
-29 tests across 5 files, all passing. Run with:
+43 tests across 6 files, all passing. Run with:
 
 ```bash
 .venv/bin/pytest -v
@@ -134,6 +147,7 @@ Test files:
 - `tests/test_sign_inference.py` — debit/credit sign inference edge cases
 - `tests/test_ocr_pipeline.py` — Chase parser, merchant extraction, routing
 - `tests/test_boa_parser.py` — BoA parser, explicit-negative amounts, routing
+- `tests/test_venmo_parser.py` — Venmo CSV parser, skip logic, dedup, reconciliation
 
 Synthetic fixtures live in `tests/fixtures/`. Tests use an in-memory SQLite
 database via `DATABASE_URL` set in `tests/conftest.py` — no live DB is touched.
