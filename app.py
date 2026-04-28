@@ -36,6 +36,7 @@ from sqlalchemy import (
     DateTime,
     func,
     or_,
+    extract,
 )
 
 from config import Config
@@ -965,6 +966,46 @@ def budget_summary():
         "rent_available":   440.90,
         "rent_shortfall":  1876.10,
     }
+
+    # ── Chart 1: monthly net CC activity (DB query) ───────────────────────
+    _CC_IDS = [5, 6, 7, 8, 9]  # CapOne Plat, Quick, Citi, CareCredit, PayPal CC
+    _chart_months = [
+        (2025, 5), (2025, 6), (2025, 7), (2025, 8), (2025, 9), (2025, 10),
+        (2025, 11), (2025, 12), (2026, 1), (2026, 2), (2026, 3), (2026, 4),
+    ]
+    cc_net_history = []
+    for _y, _m in _chart_months:
+        _net = db.session.query(func.sum(Transaction.amount)).filter(
+            Transaction.account_id.in_(_CC_IDS),
+            extract("year",  Transaction.date) == _y,
+            extract("month", Transaction.date) == _m,
+        ).scalar() or 0.0
+        _interest = db.session.query(func.sum(Transaction.amount)).filter(
+            Transaction.account_id.in_(_CC_IDS),
+            extract("year",  Transaction.date) == _y,
+            extract("month", Transaction.date) == _m,
+            Transaction.merchant.ilike("%interest%"),
+        ).scalar() or 0.0
+        cc_net_history.append({
+            "month":    date(int(_y), int(_m), 1).strftime("%b '%y"),
+            "net":      round(float(_net), 2),
+            "interest": round(float(_interest), 2),
+        })
+    data["cc_net_history"] = cc_net_history
+    data["total_interest_charged"] = round(
+        abs(sum(h["interest"] for h in cc_net_history)), 2
+    )
+
+    # ── Chart 7: debt projection (hardcoded math from data dict) ─────────
+    _debt = data["debt_total"]
+    _gap  = data["gap_without_earned"]
+    _surplus = data["surplus_if_cut"]
+    data["projection_months"] = [
+        "Apr '26", "May '26", "Jun '26", "Jul '26", "Aug '26", "Sep '26", "Oct '26"
+    ]
+    data["proj_no_uber"]   = [round(_debt + i * _gap, 2)     for i in range(7)]
+    data["proj_with_uber"] = [round(max(0, _debt - i * _surplus), 2) for i in range(7)]
+
     return render_template("budget_summary.html", **data)
 
 

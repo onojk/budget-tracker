@@ -7,6 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Lora:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
     /* ── Tokens ──────────────────────────────────────────── */
     :root {
@@ -320,6 +321,98 @@
       margin-bottom: 0.35rem;
     }
 
+    /* ── Charts ──────────────────────────────────────────────── */
+    .chart-wrap {
+      margin: 1.5rem 0 0.5rem;
+      position: relative;
+    }
+    .chart-caption {
+      font-family: var(--font-ui);
+      font-size: 0.78rem;
+      color: var(--muted);
+      line-height: 1.5;
+      margin-top: 0.6rem;
+    }
+    .chart-caption strong { color: var(--neg); }
+
+    /* ── Variable spending SVG bars ───────────────────────────── */
+    .var-bar-wrap { margin: 1.25rem 0; }
+    .var-bar-row {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      margin-bottom: 0.45rem;
+    }
+    .var-bar-label {
+      font-family: var(--font-ui);
+      font-size: 0.8rem;
+      flex: 0 0 210px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .var-bar-track {
+      flex: 1;
+      height: 12px;
+      background: var(--divider);
+      border-radius: 2px;
+      overflow: hidden;
+      position: relative;
+    }
+    .var-bar {
+      height: 100%;
+      background: #c8a87a;
+      border-radius: 2px;
+    }
+    .var-bar-amt {
+      font-family: var(--font-ui);
+      font-variant-numeric: tabular-nums;
+      font-size: 0.78rem;
+      color: var(--muted);
+      flex: 0 0 52px;
+      text-align: right;
+    }
+
+    /* ── Rent progress bar ────────────────────────────────────── */
+    .rent-bar-wrap { margin: 1.5rem 0; }
+    .rent-bar-labels {
+      display: flex;
+      justify-content: space-between;
+      font-family: var(--font-ui);
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-bottom: 0.3rem;
+    }
+    .rent-bar-labels .lbl-need { color: var(--text); font-weight: 600; }
+    .rent-bar-track {
+      height: 28px;
+      background: rgba(168, 50, 50, 0.18);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .rent-progress {
+      height: 100%;
+      background: rgba(58, 125, 68, 0.55);
+      border-radius: 3px 0 0 3px;
+      display: flex;
+      align-items: center;
+      padding-left: 0.5rem;
+      font-family: var(--font-ui);
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: #2a5c34;
+      white-space: nowrap;
+    }
+    .rent-bar-sub {
+      display: flex;
+      justify-content: space-between;
+      font-family: var(--font-ui);
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-top: 0.25rem;
+    }
+    .rent-bar-sub .lbl-short { color: var(--neg); font-weight: 600; }
+
     /* ── SLIDE MODE ──────────────────────────────────────── */
     body.slide-mode {
       overflow: hidden;
@@ -472,6 +565,15 @@
           <span class="headline-amount amt-neg">−{{ (debt_total - cash_total) | currency }}</span>
           <p class="headline-sub">We owe {{ (debt_total - cash_total) | currency }} more than we hold in liquid accounts.</p>
         </div>
+
+        <div class="chart-wrap">
+          <canvas id="cc-net-chart" height="130" aria-label="Monthly net credit-card activity"></canvas>
+          <p class="chart-caption">
+            Bars above zero: debt shrank that month. Bars below zero: debt grew.
+            <strong>Total interest charged: ${{ "{:,.0f}".format(total_interest_charged) }} across all cards in this period.</strong>
+            July 2025 spike reflects a household move.
+          </p>
+        </div>
       </section>
 
       <!-- ══════════════════════════════════════════════════════
@@ -524,6 +626,11 @@
           CapOne Quicksilver accrued $30 in interest during the same period —
           shown above as an increase.
         </p>
+
+        <div class="chart-wrap">
+          <canvas id="paydown-chart" height="110" aria-label="Card balances before and after paydown"></canvas>
+          <p class="chart-caption">Statement closing vs. current balance per card. Red indicates interest-driven increase.</p>
+        </div>
       </section>
 
       <!-- ══════════════════════════════════════════════════════
@@ -582,6 +689,11 @@
           <span class="headline-label">Available after fixed expenses</span>
           <span class="headline-amount">${{ "{:,.0f}".format(available_after_fixed) }}/mo</span>
         </div>
+
+        <div class="chart-wrap">
+          <canvas id="income-chart" height="80" aria-label="Recurring income vs fixed expenses"></canvas>
+          <p class="chart-caption">Fixed expenses consume {{ "{:.0f}".format(fixed_total / income_recurring * 100) }}% of recurring income before any variable spending.</p>
+        </div>
       </section>
 
       <!-- ══════════════════════════════════════════════════════
@@ -597,19 +709,27 @@
           been separated out of the grocery figure.
         </p>
 
-        <div class="dl-group">
-          <dl>
-            {% for name, amount in variable_items %}
-            <div class="dl-row">
-              <dt>{{ name }}</dt>
-              <dd class="amt-muted">~${{ "{:,.0f}".format(amount) }}/mo</dd>
+        <div class="var-bar-wrap">
+          {% set max_var = variable_items | map(attribute=1) | max %}
+          {% for name, amount in variable_items %}
+          {% set pct = (amount / max_var * 100) | round(1) %}
+          <div class="var-bar-row">
+            <span class="var-bar-label" title="{{ name }}">{{ name.split('(')[0].strip() }}</span>
+            <div class="var-bar-track">
+              <div class="var-bar" style="width:{{ pct }}%"></div>
             </div>
-            {% endfor %}
-          </dl>
-          <div class="dl-total">
-            <span>Total Variable</span>
+            <span class="var-bar-amt">~${{ "{:,.0f}".format(amount) }}</span>
+          </div>
+          {% endfor %}
+          <div style="font-family:var(--font-ui);font-size:0.8rem;border-top:2px solid var(--text);padding-top:0.4rem;display:flex;justify-content:space-between;font-weight:600;margin-top:0.25rem">
+            <span>Total variable</span>
             <span>~${{ "{:,.0f}".format(variable_total) }}/mo</span>
           </div>
+          <p class="chart-caption" style="margin-top:0.6rem">
+            Average monthly spending exceeds available income by
+            <strong>${{ "{:,.0f}".format(variable_total - available_for_variable) }}/mo</strong>
+            without earned income. Groceries and medical are the largest categories.
+          </p>
         </div>
       </section>
 
@@ -672,6 +792,42 @@
             </div>
           </div>
         </div>
+
+        {# Gap waterfall SVG — horizontal bars showing income to spending flow #}
+        {% set _scale = 5390 %}
+        {% set _w = 440 %}
+        {% set _rh = 26 %}
+        {% set _gap_y = 5 * (_rh + 8) %}
+        <div class="gap-svg-wrap">
+          <svg id="gap-svg" viewBox="0 0 {{ _w }} {{ _gap_y + _rh + 30 }}"
+               style="width:100%;max-width:{{ _w }}px;display:block"
+               aria-label="Income to spending gap waterfall">
+            {# Row 0: Income (with Uber) #}
+            {% set _bar0 = (total_with_uber / _scale * (_w - 80)) | int %}
+            <rect x="0" y="0" width="{{ _bar0 }}" height="{{ _rh }}" rx="2" fill="rgba(58,125,68,0.6)"/>
+            <text x="{{ _bar0 + 4 }}" y="{{ _rh - 7 }}" font-family="Inter,sans-serif" font-size="10" fill="var(--muted)">Income ${{ "{:,.0f}".format(total_with_uber) }}</text>
+            {# Row 1: minus Fixed #}
+            {% set _bar1 = (fixed_total / _scale * (_w - 80)) | int %}
+            <rect x="0" y="{{ _rh + 8 }}" width="{{ _bar1 }}" height="{{ _rh }}" rx="2" fill="rgba(168,50,50,0.45)"/>
+            <text x="{{ _bar1 + 4 }}" y="{{ _rh + 8 + _rh - 7 }}" font-family="Inter,sans-serif" font-size="10" fill="var(--muted)">Fixed −${{ "{:,.0f}".format(fixed_total) }}</text>
+            {# Row 2: minus CC minimums #}
+            {% set _bar2 = (cc_minimums / _scale * (_w - 80)) | int %}
+            <rect x="0" y="{{ 2 * (_rh + 8) }}" width="{{ _bar2 }}" height="{{ _rh }}" rx="2" fill="rgba(168,50,50,0.45)"/>
+            <text x="{{ _bar2 + 4 }}" y="{{ 2 * (_rh + 8) + _rh - 7 }}" font-family="Inter,sans-serif" font-size="10" fill="var(--muted)">CC min −${{ "{:,.0f}".format(cc_minimums) }}</text>
+            {# Row 3: Available (after fixed+CC) #}
+            {% set _bar3 = (available_with_uber / _scale * (_w - 80)) | int %}
+            <rect x="0" y="{{ 3 * (_rh + 8) }}" width="{{ _bar3 }}" height="{{ _rh }}" rx="2" fill="rgba(58,125,68,0.35)"/>
+            <text x="{{ _bar3 + 4 }}" y="{{ 3 * (_rh + 8) + _rh - 7 }}" font-family="Inter,sans-serif" font-size="10" fill="var(--pos)">Available ${{ "{:,.0f}".format(available_with_uber) }}</text>
+            {# Row 4: Variable spending (actual) #}
+            {% set _bar4 = (variable_total / _scale * (_w - 80)) | int %}
+            <rect x="0" y="{{ 4 * (_rh + 8) }}" width="{{ _bar4 }}" height="{{ _rh }}" rx="2" fill="rgba(168,50,50,0.65)"/>
+            <text x="{{ _bar4 + 4 }}" y="{{ 4 * (_rh + 8) + _rh - 7 }}" font-family="Inter,sans-serif" font-size="10" fill="var(--neg)">Variable spending ${{ "{:,.0f}".format(variable_total) }}</text>
+            {# Row 5: Gap or surplus #}
+            {% set _bar5 = (gap_without_earned / _scale * (_w - 80)) | int %}
+            <rect x="0" y="{{ _gap_y }}" width="{{ _bar5 }}" height="{{ _rh }}" rx="2" fill="rgba(168,50,50,0.85)"/>
+            <text x="{{ _bar5 + 4 }}" y="{{ _gap_y + _rh - 7 }}" font-family="Inter,sans-serif" font-size="11" font-weight="600" fill="var(--neg)">Gap −${{ "{:,.0f}".format(gap_without_earned) }}/mo without earned income</text>
+          </svg>
+        </div>
       </section>
 
       <!-- ══════════════════════════════════════════════════════
@@ -707,6 +863,23 @@
         <div class="shortfall-callout">
           <span class="sf-label">Shortfall to cover {{ rent_due_date }} rent</span>
           <span class="sf-amount">{{ rent_shortfall | currency }}</span>
+        </div>
+
+        {% set _pct = (rent_available / rent_amount * 100) | round(1) %}
+        <div class="rent-bar-wrap">
+          <div class="rent-bar-labels">
+            <span>$0</span>
+            <span class="lbl-need">Rent needed: {{ rent_amount | currency }}</span>
+          </div>
+          <div class="rent-bar-track">
+            <div class="rent-progress" style="width:{{ _pct }}%">
+              {{ rent_available | currency }} on hand
+            </div>
+          </div>
+          <div class="rent-bar-sub">
+            <span>{{ "{:.0f}".format(_pct) }}% covered</span>
+            <span class="lbl-short">Shortfall: {{ rent_shortfall | currency }}</span>
+          </div>
         </div>
 
         <p class="caveat">
@@ -760,10 +933,154 @@
           month should require less. The goal is to reach a place where we
           ask for help in genuinely lean months — not structurally, every month.
         </p>
+
+        <div class="chart-wrap">
+          <canvas id="projection-chart" height="130" aria-label="6-month debt projection"></canvas>
+          <p class="chart-caption">
+            Two trajectories from today's ${{ "{:,.0f}".format(debt_total) }} balance.
+            Without Uber and spending changes, debt grows by ${{ "{:,.0f}".format(gap_without_earned) }}/mo.
+            With both levers active, a ${{ "{:,.0f}".format(surplus_if_cut) }}/mo surplus begins clearing debt.
+          </p>
+        </div>
       </section>
 
     </div><!-- /#slide-track -->
   </main>
+
+  <!-- ── Chart.js initializations ───────────────────────────── -->
+  <script>
+  (function () {
+    'use strict';
+
+    var _pos  = 'rgba(58,125,68,0.72)';
+    var _neg  = 'rgba(168,50,50,0.72)';
+    var _grid = '#e5e2da';
+    var _muted= '#999999';
+    var _ui   = "'Inter', Helvetica, sans-serif";
+
+    Chart.defaults.font.family = "'Inter', Helvetica, sans-serif";
+    Chart.defaults.color = '#666666';
+
+    /* ── Chart 1: Monthly net CC activity ─────────────────── */
+    var ccData = {{ cc_net_history | tojson }};
+    new Chart(document.getElementById('cc-net-chart'), {
+      type: 'bar',
+      data: {
+        labels: ccData.map(function(d){ return d.month; }),
+        datasets: [{
+          data: ccData.map(function(d){ return d.net; }),
+          backgroundColor: ccData.map(function(d){
+            return d.net >= 0 ? _pos : _neg;
+          }),
+          borderWidth: 0,
+        }]
+      },
+      options: {
+        plugins: { legend: { display: false }, tooltip: {
+          callbacks: { label: function(c){
+            var v = c.raw;
+            return (v >= 0 ? '+' : '') + '$' + Math.abs(v).toLocaleString('en-US', {minimumFractionDigits:0, maximumFractionDigits:0});
+          }}
+        }},
+        scales: {
+          x: { grid: { display: false }, ticks: { font: { size: 11 } } },
+          y: { grid: { color: _grid },
+               ticks: { callback: function(v){
+                 return (v >= 0 ? '+' : '') + '$' + Math.abs(v/1000).toFixed(1) + 'k';
+               }, font: { size: 11 } }
+          }
+        }
+      }
+    });
+
+    /* ── Chart 2: Paydown before/after grouped bar ─────────── */
+    var pdRows  = {{ paydown_rows | tojson }};
+    var pdNames  = pdRows.map(function(r){ return r[0]; });
+    var pdBefore = pdRows.map(function(r){ return r[1]; });
+    var pdAfter  = pdRows.map(function(r){ return r[2]; });
+    new Chart(document.getElementById('paydown-chart'), {
+      type: 'bar',
+      data: {
+        labels: pdNames,
+        datasets: [
+          { label: 'Before', data: pdBefore, backgroundColor: 'rgba(153,153,153,0.45)', borderWidth: 0 },
+          { label: 'After',  data: pdAfter,
+            backgroundColor: pdAfter.map(function(v,i){ return v < pdBefore[i] ? _pos : _neg; }),
+            borderWidth: 0 }
+        ]
+      },
+      options: {
+        plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+                   tooltip: { callbacks: { label: function(c){
+                     return c.dataset.label + ': $' + c.raw.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+                   }}}},
+        scales: {
+          x: { grid: { display: false }, ticks: { font: { size: 11 } } },
+          y: { grid: { color: _grid },
+               ticks: { callback: function(v){ return '$' + (v/1000).toFixed(1) + 'k'; }, font: { size: 11 } } }
+        }
+      }
+    });
+
+    /* ── Chart 3: Income vs fixed expenses horizontal bar ───── */
+    new Chart(document.getElementById('income-chart'), {
+      type: 'bar',
+      data: {
+        labels: ['Recurring income', 'Fixed expenses'],
+        datasets: [{
+          data: [{{ income_recurring }}, {{ fixed_total }}],
+          backgroundColor: [_pos, _neg],
+          borderWidth: 0,
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: function(c){
+          return '$' + c.raw.toLocaleString('en-US');
+        }}}},
+        scales: {
+          x: { grid: { color: _grid }, max: {{ income_recurring + 500 }},
+               ticks: { callback: function(v){ return '$' + (v/1000).toFixed(1) + 'k'; }, font: { size: 11 } } },
+          y: { grid: { display: false }, ticks: { font: { size: 12 } } }
+        }
+      }
+    });
+
+    /* ── Chart 7: Debt projection ──────────────────────────── */
+    var projMonths  = {{ projection_months | tojson }};
+    var projNoUber  = {{ proj_no_uber | tojson }};
+    var projWithUber= {{ proj_with_uber | tojson }};
+    new Chart(document.getElementById('projection-chart'), {
+      type: 'line',
+      data: {
+        labels: projMonths,
+        datasets: [
+          { label: 'Without changes',
+            data: projNoUber,
+            borderColor: 'rgba(168,50,50,0.8)',
+            backgroundColor: 'transparent',
+            tension: 0, pointRadius: 3 },
+          { label: 'With Uber + spending cuts',
+            data: projWithUber,
+            borderColor: 'rgba(58,125,68,0.8)',
+            backgroundColor: 'rgba(58,125,68,0.06)',
+            fill: true, tension: 0, pointRadius: 3 }
+        ]
+      },
+      options: {
+        plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+                   tooltip: { callbacks: { label: function(c){
+                     return c.dataset.label + ': $' + c.raw.toLocaleString('en-US', {minimumFractionDigits:2});
+                   }}}},
+        scales: {
+          x: { grid: { display: false }, ticks: { font: { size: 11 } } },
+          y: { grid: { color: _grid },
+               ticks: { callback: function(v){ return '$' + (v/1000).toFixed(1) + 'k'; }, font: { size: 11 } } }
+        }
+      }
+    });
+  }());
+  </script>
 
   <!-- ── Slide navigation JS ─────────────────────────────── -->
   <script>
