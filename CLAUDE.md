@@ -207,30 +207,46 @@ row's sign, the second is still missing. **Detection:** reconciliation gap equal
 exactly the missing amount. **Fix:** manual `INSERT` after verifying in OCR text
 that two distinct entries exist (confirmed via running balance).
 
-### Bug class C — Year-inference error at year-boundary statements (Chase Savings, data corrected)
+### Bug class C — Year-inference error at year-boundary statements (multiple parsers)
 
-Chase statements spanning two calendar years (e.g., Dec 2025 – Jan 2026) use
-two-digit month/day dates without an explicit year. When the savings account section
-is parsed after the checking section has already processed January dates, the
-year-rollover logic assigned the end-year (2026) to December savings transactions
-that should be in the start-year (2025).
+Statements spanning two calendar years (e.g., Dec 2025 – Jan 2026) use dates
+without an explicit year. Parsers that infer year from statement context can assign
+the end-year (2026) to December transactions that belong in the start-year (2025).
 
-**Data corrected 2026-04-27:** 7 Chase Savings rows (ids 1697–1703) re-dated from
-`2026-12-xx` to `2025-12-xx`. **Parser fix deferred:** the year-inference logic in
-`_parse_chase_transaction_detail` should anchor December dates to the start-year
-when the statement end-month is January. Apply this fix before importing any future
-cross-year Chase statements.
+**Confirmed in two parsers so far:**
+
+1. **Chase PDF** (`_parse_chase_transaction_detail`): when the savings account section
+   is parsed after the checking section has already seen January dates, the rollover
+   logic applies 2026 to December savings rows.
+   - *Data corrected 2026-04-27:* 7 Chase Savings rows (ids 1697–1703) re-dated from
+     `2026-12-xx` to `2025-12-xx`.
+   - *Parser fix deferred:* anchor December dates to the start-year when the
+     statement end-month is January. Apply before importing future cross-year Chase
+     statements.
+
+2. **Capital One** (`parsers/capitalone_pdf_parser.py`): same root cause; a CapOne
+   Platinum statement spanning Dec 2025 / Jan 2026 stored two December rows in 2026.
+   - *Data corrected 2026-04-27:* 2 CapOne Platinum rows (ids 3164, 3165) re-dated
+     from `2026-12-xx` to `2025-12-xx` — a payment (+$25.00) and a DoorDash charge
+     (−$40.31).
+   - *Parser fix deferred:* same fix needed in `capitalone_pdf_parser.py`.
+
+**Watch for Bug C in any parser that handles year-boundary statements.** The pattern
+is: unexpected `2026-12-xx` dates appearing in December for accounts whose most recent
+statement spans Dec–Jan. Check after every cross-year import batch.
 
 ### Reconciliation state after 2026-04-27 corrections
 
-All 25 imported statements close to $0.00:
+All 25 initially imported statements close to $0.00:
 - 10 Chase statements × 2 accounts (Checking + Savings): 20/20 OK
 - 9 BoA statements: 9/9 OK
-- Total transactions in DB: 2795
+- Total transactions in DB at that point: 2795
+- Additional imports since then: CareCredit, Citi, PayPal CC/wallet, CapOne —
+  total now 3,399 (verified 2026-04-27). Date span: Mar 2025 – Apr 2026 (~13.8 months).
 
 ## Testing
 
-151 tests across 10 files, all passing. Run with:
+213 tests across 11 files, all passing. Run with:
 
 ```bash
 .venv/bin/pytest -v

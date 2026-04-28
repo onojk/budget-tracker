@@ -92,6 +92,26 @@ Correction: UPDATE date = REPLACE(date, '2026-12', '2025-12').
 Reconciliation result after all corrections:
     All 25 statements (10 Chase × 2 accounts + 9 BoA) closed to $0.00.
     Total transactions in DB after corrections: 2795.
+
+==========================================================================
+BUG CLASS C (ADDENDUM): Year-inference in Capital One parser (2026-04-27)
+==========================================================================
+
+Root cause (parsers/capitalone_pdf_parser.py):
+    Same year-inference failure as Chase Savings: a CapOne statement
+    spanning Dec 2025 / Jan 2026 assigned 2026 to the December
+    transactions instead of 2025.
+
+Affected rows: 2 rows, CapOne Platinum 0728 (ids 3164, 3165)
+    id=3164  2026-12-19  +$25.00   CAPITAL ONE MOBILE PYMT
+    id=3165  2026-12-27  -$40.31   DOORDASH JERSEYMIKSAN
+
+Correction: UPDATE date = REPLACE(date, '2026-12', '2025-12').
+
+Bug C is now confirmed in three parsers:
+    1. Chase PDF     (_parse_chase_transaction_detail)  — 7 rows fixed 2026-04-27
+    2. Capital One   (capitalone_pdf_parser.py)         — 2 rows fixed 2026-04-27
+    3. ??? (watch for more at year boundaries in other parsers)
 ==========================================================================
 """
 
@@ -232,6 +252,35 @@ def run_correction():
             print(f"Bug C: corrected year on {len(to_fix)} rows: {to_fix}")
         else:
             print("Bug C: all rows already correct — no action taken")
+
+        # ----------------------------------------------------------------
+        # BUG C (ADDENDUM): fix 2 wrong-year dates in CapOne Platinum
+        # ----------------------------------------------------------------
+        # Same year-inference bug as Chase Savings above, but triggered
+        # in capitalone_pdf_parser.py for a Dec 2025 / Jan 2026 statement.
+        # Idempotent: skip rows already dated 2025-12.
+        # ----------------------------------------------------------------
+        CAONE_DATE_FIX_IDS = [3164, 3165]
+
+        caone_placeholders = ",".join(str(i) for i in CAONE_DATE_FIX_IDS)
+        rows_caone = db.session.execute(text(
+            f"SELECT id, date FROM \"transaction\" WHERE id IN ({caone_placeholders}) ORDER BY id"
+        )).fetchall()
+
+        to_fix_caone = [r[0] for r in rows_caone if str(r[1]).startswith("2026-12")]
+        already_fixed_caone = [r[0] for r in rows_caone if not str(r[1]).startswith("2026-12")]
+
+        if already_fixed_caone:
+            print(f"Bug C (CapOne): {len(already_fixed_caone)} rows already corrected (skip): {already_fixed_caone}")
+        if to_fix_caone:
+            caone_fix_placeholders = ",".join(str(i) for i in to_fix_caone)
+            db.session.execute(text(
+                f"UPDATE \"transaction\" SET date = REPLACE(CAST(date AS TEXT), '2026-12', '2025-12') "
+                f"WHERE id IN ({caone_fix_placeholders})"
+            ))
+            print(f"Bug C (CapOne): corrected year on {len(to_fix_caone)} rows: {to_fix_caone}")
+        else:
+            print("Bug C (CapOne): all rows already correct — no action taken")
 
         db.session.commit()
         print("\nAll corrections committed.")
