@@ -103,3 +103,36 @@ def test_section6_has_rent_progress(client):
 def test_section7_has_projection_chart(client):
     resp = client.get("/budget-summary")
     assert b"projection-chart" in resp.data
+
+
+# ── Realistic Uber income update tests (Commit E → all fail until Commit F) ──
+
+
+def test_budget_summary_shows_uber_realistic_income(client):
+    resp = client.get("/budget-summary")
+    assert b"1,290" in resp.data
+
+
+def test_budget_summary_shows_income_with_uber(client):
+    resp = client.get("/budget-summary")
+    assert b"5,060" in resp.data
+
+
+def test_budget_summary_shows_available_with_uber_updated(client):
+    resp = client.get("/budget-summary")
+    assert b"2,169" in resp.data
+
+
+def test_budget_summary_shows_gap_after_uber(client):
+    resp = client.get("/budget-summary")
+    assert b"991" in resp.data
+
+
+def test_budget_summary_shows_surplus_realistic(client):
+    resp = client.get("/budget-summary")
+    assert b"209" in resp.data
+
+
+def test_section5_has_three_waterfalls(client):
+    resp = client.get("/budget-summary")
+    assert b"gap-svg-2" in resp.data
