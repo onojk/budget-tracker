@@ -270,3 +270,31 @@ def test_doordash_shows_annual_savings(client):
 def test_doordash_shows_uber_hours_equivalence(client):
     resp = client.get("/budget-summary")
     assert b"Uber" in resp.data and b"hours" in resp.data
+
+
+# ── SGA compliance + corrected income framing (Commit O → fail until Commit P) ──
+
+
+def test_section3_has_sga_compliance_note(client):
+    resp = client.get("/budget-summary")
+    assert b"SGA" in resp.data
+
+
+def test_section3_shows_sga_limit(client):
+    resp = client.get("/budget-summary")
+    assert b"1,620" in resp.data
+
+
+def test_section3_notes_esports_concluded_date(client):
+    resp = client.get("/budget-summary")
+    assert b"April 24, 2026" in resp.data
+
+
+def test_section3_mentions_mileage_deduction(client):
+    resp = client.get("/budget-summary")
+    assert b"mileage" in resp.data
+
+
+def test_section3_notes_self_employment(client):
+    resp = client.get("/budget-summary")
+    assert b"self-employment" in resp.data
