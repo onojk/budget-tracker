@@ -136,3 +136,36 @@ def test_budget_summary_shows_surplus_realistic(client):
 def test_section5_has_three_waterfalls(client):
     resp = client.get("/budget-summary")
     assert b"gap-svg-2" in resp.data
+
+
+# ── CareCredit clearance + totals table tests (Commit G → fail until H) ──────
+
+
+def test_section1_shows_debt_after_carecredit(client):
+    resp = client.get("/budget-summary")
+    assert b"1,747" in resp.data
+
+
+def test_section1_shows_carecredit_commitment(client):
+    resp = client.get("/budget-summary")
+    assert b"committed" in resp.data
+
+
+def test_section2_has_totals_table(client):
+    resp = client.get("/budget-summary")
+    assert b"cc-totals" in resp.data
+
+
+def test_section5_updated_available_with_uber(client):
+    resp = client.get("/budget-summary")
+    assert b"2,313" in resp.data
+
+
+def test_section6_notes_carecredit_separately(client):
+    resp = client.get("/budget-summary")
+    assert b"Separately" in resp.data
+
+
+def test_section7_shows_updated_payoff_timeline(client):
+    resp = client.get("/budget-summary")
+    assert b"4-12" in resp.data
