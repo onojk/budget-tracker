@@ -932,6 +932,8 @@ def budget_summary():
             ("Uber driving (self-employment, ~$300/wk)", 1290, False),
         ],
         "sga_limit":        1620,   # 2026 SGA threshold (non-blind)
+        "sga_uber_target":  1290,   # Uber gross target (~$300/wk)
+        "sga_uber_buffer":   330,   # 1620 - 1290
         "esports_end_date": "April 24, 2026",
         "income_recurring":     3770,   # spouse + royalties only (certain income)
         "uber_gas_increment":    360,   # incremental gas for Uber driving (500 mi/wk, 27 MPG, $4.50/gal)
