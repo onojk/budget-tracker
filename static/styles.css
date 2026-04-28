@@ -7,9 +7,22 @@ body {
   box-shadow: 0 0.1rem 0.4rem rgba(0,0,0,0.08);
 }
 
+.nav-links a {
+  color: #d4d4d0;
+  text-decoration: none;
+  padding: 0.25rem 0;
+  margin: 0 0.5rem;
+  transition: color 150ms;
+}
+
+.nav-links a:hover {
+  color: #ffffff;
+}
+
 .nav-links a.active {
+  color: #ffffff;
   font-weight: 600;
-  text-decoration: underline;
+  border-bottom: 1px solid #c8a87a;
 }
 
 
