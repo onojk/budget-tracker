@@ -973,6 +973,13 @@ def budget_summary():
         # Wf3b: $1,500/mo cuts — aggressive; first scenario with surplus
         "variable_aggressive_cut": 1810,   # variable_total - 1500
         "surplus_aggressive":        68,   # available_with_uber - variable_aggressive_cut
+        # ── DoorDash Reality Check (between S4 and S5) ───────
+        "doordash_total":           9366,    # total spent Mar 2025 – Apr 2026 (13.8 mo)
+        "doordash_orders":          240,     # total orders
+        "doordash_monthly_norm":    560,     # ~$560/mo normalized (excl Jul 2025 spike)
+        "doordash_target":           50,     # target monthly cap
+        "doordash_monthly_savings": 510,     # 560 - 50
+        "doordash_annual_savings":  6120,    # 510 × 12
         # ── Section 6: May rent ───────────────────────────────
         "rent_due_date":   "Friday, May 1, 2026",
         "rent_amount":      2317,

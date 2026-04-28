@@ -793,6 +793,96 @@
       </section>
 
       <!-- ══════════════════════════════════════════════════════
+           SECTION 4b — The DoorDash Reality Check
+           ══════════════════════════════════════════════════════ -->
+      <section id="dd-reality">
+        <h2>The DoorDash Reality Check</h2>
+        <p class="lede">
+          We've been driving Uber, bringing money in, while DoorDash takes it
+          right back out. Here's what that looks like in actual numbers.
+        </p>
+
+        <div style="font-family:var(--font-ui);margin:1.5rem 0">
+          <!-- ── Three stat cards ─────────────────────────── -->
+          <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:1.25rem">
+            <div style="flex:1;min-width:130px;background:#fee2e2;border-radius:8px;padding:0.75rem 1rem">
+              <div style="font-size:0.68rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:#991b1b;margin-bottom:0.2rem">Spent since Mar 2025</div>
+              <div style="font-size:1.5rem;font-weight:700;color:#991b1b">${{ "{:,.0f}".format(doordash_total) }}</div>
+              <div style="font-size:0.72rem;color:#991b1b;opacity:0.85">{{ doordash_orders }} orders · avg $39/order</div>
+            </div>
+            <div style="flex:1;min-width:130px;background:#fff7ed;border-radius:8px;padding:0.75rem 1rem">
+              <div style="font-size:0.68rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:#92400e;margin-bottom:0.2rem">Normalized monthly</div>
+              <div style="font-size:1.5rem;font-weight:700;color:#92400e">~${{ "{:,}".format(doordash_monthly_norm) }}/mo</div>
+              <div style="font-size:0.72rem;color:#92400e;opacity:0.85">excl. Jul 2025 moving-month spike</div>
+            </div>
+            <div style="flex:1;min-width:130px;background:#f0fdf4;border-radius:8px;padding:0.75rem 1rem">
+              <div style="font-size:0.68rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:#166534;margin-bottom:0.2rem">Target going forward</div>
+              <div style="font-size:1.5rem;font-weight:700;color:#166534">${{ doordash_target }}/mo</div>
+              <div style="font-size:0.72rem;color:#166534;opacity:0.85">dining budget cap</div>
+            </div>
+          </div>
+
+          <!-- ── Cost stack SVG ──────────────────────────── -->
+          {% set _tgt_w = (doordash_target * 480.0 / doordash_monthly_norm) | int %}
+          <svg id="dd-cost-stack" viewBox="0 0 480 62" style="width:100%;max-width:480px;display:block;margin:0.5rem 0 1rem" aria-label="DoorDash cost bar: $560/mo current vs $50/mo target">
+            <rect x="0" y="4" width="480" height="28" fill="#fca5a5" rx="4"/>
+            <rect x="0" y="4" width="{{ _tgt_w }}" height="28" fill="#86efac" rx="4"/>
+            <line x1="{{ _tgt_w }}" y1="2" x2="{{ _tgt_w }}" y2="34" stroke="#374151" stroke-width="1.5" stroke-dasharray="3,2"/>
+            <text x="{{ _tgt_w + 5 }}" y="14" font-family="system-ui,sans-serif" font-size="10" fill="#7f1d1d">← save ${{ "{:,}".format(doordash_monthly_savings) }}/mo here</text>
+            <text x="3" y="51" font-family="system-ui,sans-serif" font-size="10" fill="#166534" font-weight="600">Keep: ${{ doordash_target }}</text>
+            <text x="{{ _tgt_w + 5 }}" y="51" font-family="system-ui,sans-serif" font-size="10" fill="#991b1b">Current: ~${{ "{:,}".format(doordash_monthly_norm) }}/mo</text>
+          </svg>
+        </div>
+
+        <!-- ── The contradiction callout ────────────────── -->
+        <p style="background:#fffbeb;border-left:3px solid #d97706;padding:0.75rem 1rem;border-radius:0 6px 6px 0;font-family:var(--font-ui);font-size:0.88rem;line-height:1.55;margin-bottom:1.25rem">
+          At ${{ "{:,}".format(doordash_monthly_norm) }}/mo, DoorDash nearly cancels out
+          the net income Uber brings in (${{ "{:,}".format(uber_income_net) }}/mo net of vehicle costs).
+          The pattern: driving Uber to earn, then handing a big share of it to delivery drivers.
+        </p>
+
+        <!-- ── Cook vs. deliver table ───────────────────── -->
+        <div style="font-family:var(--font-ui);font-size:0.85rem;margin-bottom:1.25rem">
+          <table style="width:100%;border-collapse:collapse">
+            <thead>
+              <tr>
+                <th style="text-align:left;padding:0.3rem 0.4rem;border-bottom:2px solid var(--divider);font-size:0.72rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--label)">Scenario</th>
+                <th style="text-align:right;padding:0.3rem 0.4rem;border-bottom:2px solid var(--divider);font-size:0.72rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--label)">Monthly</th>
+                <th style="text-align:right;padding:0.3rem 0.4rem;border-bottom:2px solid var(--divider);font-size:0.72rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--label)">Annual</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td style="padding:0.3rem 0.4rem;border-bottom:1px solid var(--divider)">Current DoorDash habit</td>
+                <td style="text-align:right;padding:0.3rem 0.4rem;border-bottom:1px solid var(--divider);color:var(--neg)">−${{ "{:,}".format(doordash_monthly_norm) }}</td>
+                <td style="text-align:right;padding:0.3rem 0.4rem;border-bottom:1px solid var(--divider);color:var(--neg)">−${{ "{:,}".format(doordash_monthly_norm * 12) }}</td>
+              </tr>
+              <tr>
+                <td style="padding:0.3rem 0.4rem;border-bottom:1px solid var(--divider)">At ${{ doordash_target }}/mo cap (occasional takeout)</td>
+                <td style="text-align:right;padding:0.3rem 0.4rem;border-bottom:1px solid var(--divider)">−${{ doordash_target }}</td>
+                <td style="text-align:right;padding:0.3rem 0.4rem;border-bottom:1px solid var(--divider)">−${{ "{:,}".format(doordash_target * 12) }}</td>
+              </tr>
+              <tr style="font-weight:600">
+                <td style="padding:0.35rem 0.4rem;color:var(--pos)">Annual savings from the change</td>
+                <td style="text-align:right;padding:0.35rem 0.4rem;color:var(--pos)">+${{ "{:,}".format(doordash_monthly_savings) }}/mo</td>
+                <td style="text-align:right;padding:0.35rem 0.4rem;color:var(--pos)">+${{ "{:,}".format(doordash_annual_savings) }}/yr</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- ── Uber-hours equivalence ────────────────────── -->
+        <p class="chart-caption">
+          At the current rate, DoorDash fees equal roughly 4 Uber hours per week —
+          half a day of driving, every single week, handed straight to delivery apps.
+          Cutting to ${{ doordash_target }}/mo saves ${{ "{:,}".format(doordash_annual_savings) }} per year,
+          which is 60% of what Uber net income contributes annually.
+          No DashPass subscription was found in the transaction history — so this is
+          all pay-per-order spend.
+        </p>
+      </section>
+
+      <!-- ══════════════════════════════════════════════════════
            SECTION 5 — The Structural Gap
            ══════════════════════════════════════════════════════ -->
       <section id="s5">
