@@ -217,3 +217,56 @@ def test_section7_shows_realistic_shortfall(client):
 def test_section5_shows_two_cut_scenarios(client):
     resp = client.get("/budget-summary")
     assert b"gap-svg-3b" in resp.data
+
+
+# ── DoorDash Reality Check section (Commit M → all fail until Commit N) ──────
+
+
+def test_doordash_section_present(client):
+    resp = client.get("/budget-summary")
+    assert b"dd-reality" in resp.data
+
+
+def test_doordash_section_has_heading(client):
+    resp = client.get("/budget-summary")
+    assert b"DoorDash" in resp.data
+
+
+def test_doordash_shows_real_annual_total(client):
+    resp = client.get("/budget-summary")
+    assert b"9,366" in resp.data
+
+
+def test_doordash_shows_order_count(client):
+    resp = client.get("/budget-summary")
+    assert b"240" in resp.data
+
+
+def test_doordash_has_cost_stack_visual(client):
+    resp = client.get("/budget-summary")
+    assert b"dd-cost-stack" in resp.data
+
+
+def test_doordash_shows_contradiction_framing(client):
+    resp = client.get("/budget-summary")
+    assert b"bringing money in" in resp.data
+
+
+def test_doordash_shows_monthly_normalized(client):
+    resp = client.get("/budget-summary")
+    assert b"560" in resp.data
+
+
+def test_doordash_shows_reduction_target(client):
+    resp = client.get("/budget-summary")
+    assert b"$50" in resp.data
+
+
+def test_doordash_shows_annual_savings(client):
+    resp = client.get("/budget-summary")
+    assert b"6,120" in resp.data
+
+
+def test_doordash_shows_uber_hours_equivalence(client):
+    resp = client.get("/budget-summary")
+    assert b"Uber" in resp.data and b"hours" in resp.data
