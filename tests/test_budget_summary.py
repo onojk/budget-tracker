@@ -168,7 +168,7 @@ def test_section6_notes_carecredit_separately(client):
 
 def test_section7_shows_updated_payoff_timeline(client):
     resp = client.get("/budget-summary")
-    assert b"4-12" in resp.data
+    assert b"~26" in resp.data
 
 
 # ── Net Uber + gas recompute + transportation category (Commit I → fail until J) ──

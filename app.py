@@ -932,7 +932,11 @@ def budget_summary():
             ("Uber driving (restarting, ~$300/wk target)", 1290, False),
         ],
         "income_recurring":     3770,   # spouse + royalties only (certain income)
-        "income_with_uber":     5060,   # + planned Uber
+        "uber_gas_increment":    360,   # incremental gas for Uber driving (500 mi/wk, 27 MPG, $4.50/gal)
+        "uber_maintenance":       75,   # vehicle maintenance set-aside
+        "uber_income_net":       855,   # 1290 gross - 360 gas - 75 maintenance
+        "income_with_uber":     4625,   # recurring + uber_income_net (net of vehicle costs)
+        "income_with_uber_net": 4625,   # alias — used in template for labeled total
         "fixed_items": [
             ("Rent + landlord utilities (water, trash, sewer, fee)", 2317),
             ("Electricity (SDGE)", 150),
@@ -950,20 +954,25 @@ def budget_summary():
             ("Therapy (recurring)",                                      85),
             ("Subscriptions (Hulu, Paramount, etc.)",                   80),
             ("Charitable giving (church)",                               54),
-            ("Other / uncategorized",                                   300),
+            ("Gas/Transportation (Arco, Costco Gas, Chevron)",          300),
+            ("Other / uncategorized",                                   150),
         ],
-        "variable_total": 3160,
+        "variable_total": 3310,
         # ── Section 5: Structural gap ─────────────────────────
-        "cc_minimums":              100,    # CareCredit minimum drops out (Mom paying); remaining cards
-        "available_for_variable":  1023,   # income_recurring - fixed - cc_min (no Uber)
-        "gap_without_earned":      2137,   # variable_total - available_for_variable
-        "uber_income":             1290,   # $300/wk realistic target (not SGA cap)
-        "total_with_uber":         5060,   # income_recurring + uber_income
-        "available_with_uber":     2313,   # total_with_uber - fixed_total - cc_minimums
-        "gap_after_uber_no_cuts":   847,   # variable_total - available_with_uber
-        "variable_target_cut":     2160,   # variable_total - 1000 cuts (target reduced with CC relief)
-        "surplus_if_cut":           153,   # available_with_uber - variable_target_cut
-        "surplus_aggressive":       353,   # available_with_uber - (variable_total - 1200 cuts)
+        "cc_minimums":              100,    # post-CareCredit (Wf2, Wf3)
+        "cc_minimums_current":      244,    # pre-CareCredit clearance, current state (Wf1)
+        "available_for_variable":   879,   # Wf1: income_recurring - fixed - cc_minimums_current
+        "gap_without_earned":      2431,   # Wf1: variable_total - available_for_variable
+        "uber_income":             1290,   # $300/wk gross
+        "total_with_uber":         5060,   # kept for reference; income_with_uber (net) = 4625
+        "available_with_uber":     1878,   # Wf2: income_with_uber_net - fixed - cc_minimums
+        "gap_after_uber_no_cuts":  1432,   # Wf2: variable_total - available_with_uber
+        # Wf3a: $1,200/mo cuts — realistic; still short
+        "variable_realistic_cut":  2110,   # variable_total - 1200
+        "shortfall_realistic":      232,   # variable_realistic_cut - available_with_uber (gap remains!)
+        # Wf3b: $1,500/mo cuts — aggressive; first scenario with surplus
+        "variable_aggressive_cut": 1810,   # variable_total - 1500
+        "surplus_aggressive":        68,   # available_with_uber - variable_aggressive_cut
         # ── Section 6: May rent ───────────────────────────────
         "rent_due_date":   "Friday, May 1, 2026",
         "rent_amount":      2317,
@@ -1004,15 +1013,15 @@ def budget_summary():
 
     # ── Chart 7: debt projection (12 months; realistic Uber + cut scenarios) ─
     _debt        = data["cc_debt_after_carecredit"]  # 1747.56 — after Mom clears CareCredit
-    _gap         = data["gap_without_earned"]        # 2137 — no Uber, no cuts
-    _surplus     = data["surplus_if_cut"]            # 153  — Uber + $1,000 cuts
-    _surplus_agg = data["surplus_aggressive"]        # 353  — Uber + $1,200 cuts
+    _gap         = data["gap_without_earned"]        # 2431 — no Uber, no cuts (Wf1)
+    _shortfall   = data["shortfall_realistic"]       # 232  — Uber + $1,200 cuts (still growing!)
+    _surplus_agg = data["surplus_aggressive"]        # 68   — Uber + $1,500 cuts (barely shrinking)
     data["projection_months"] = [
         "Apr '26", "May '26", "Jun '26", "Jul '26", "Aug '26", "Sep '26",
         "Oct '26", "Nov '26", "Dec '26", "Jan '27", "Feb '27", "Mar '27",
     ]
-    data["proj_no_uber"]    = [round(_debt + i * _gap, 2)          for i in range(12)]
-    data["proj_with_uber"]  = [round(max(0, _debt - i * _surplus), 2)     for i in range(12)]
+    data["proj_no_uber"]    = [round(_debt + i * _gap, 2)               for i in range(12)]
+    data["proj_with_uber"]  = [round(_debt + i * _shortfall, 2)         for i in range(12)]
     data["proj_aggressive"] = [round(max(0, _debt - i * _surplus_agg), 2) for i in range(12)]
 
     return render_template("budget_summary.html", **data)
