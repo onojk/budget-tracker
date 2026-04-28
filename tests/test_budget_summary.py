@@ -298,3 +298,26 @@ def test_section3_mentions_mileage_deduction(client):
 def test_section3_notes_self_employment(client):
     resp = client.get("/budget-summary")
     assert b"self-employment" in resp.data
+
+
+# ── SGA dedicated section (Commit Q → all fail until Commit R) ───────────────
+
+
+def test_budget_summary_has_sga_section(client):
+    resp = client.get("/budget-summary")
+    assert b"sga-section" in resp.data
+
+
+def test_budget_summary_mentions_self_employment_calc(client):
+    resp = client.get("/budget-summary")
+    assert b"Net Earnings from Self-Employment" in resp.data
+
+
+def test_budget_summary_sga_has_visual(client):
+    resp = client.get("/budget-summary")
+    assert b"sga-bar" in resp.data
+
+
+def test_budget_summary_uber_under_sga_limit(client):
+    resp = client.get("/budget-summary")
+    assert b"$330" in resp.data
