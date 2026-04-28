@@ -927,9 +927,10 @@ def budget_summary():
         "income_items": [
             ("Spouse payroll (Millennium Health, biweekly)", 3670, False),
             ("Music royalties (PayPal)", 100, False),
-            ("Earned income (transitioning)", None, True),
+            ("Uber driving (restarting, ~$300/wk target)", 1290, False),
         ],
-        "income_recurring":     3770,
+        "income_recurring":     3770,   # spouse + royalties only (certain income)
+        "income_with_uber":     5060,   # + planned Uber
         "fixed_items": [
             ("Rent + landlord utilities (water, trash, sewer, fee)", 2317),
             ("Electricity (SDGE)", 150),
@@ -951,13 +952,16 @@ def budget_summary():
         ],
         "variable_total": 3160,
         # ── Section 5: Structural gap ─────────────────────────
-        "cc_minimums":           244,
-        "available_for_variable": 879,   # income_recurring - fixed_total - cc_minimums
-        "gap_without_earned":   2281,   # variable_total - available_for_variable
-        "uber_income":          1620,
-        "total_with_uber":      5390,   # income_recurring + uber_income
-        "available_with_uber":  2499,   # total_with_uber - fixed_total - cc_minimums
-        "surplus_if_cut":        299,   # available_with_uber - 2200 target
+        "cc_minimums":              244,
+        "available_for_variable":   879,   # income_recurring - fixed - cc_min (no Uber)
+        "gap_without_earned":      2281,   # variable_total - available_for_variable
+        "uber_income":             1290,   # $300/wk realistic target (not SGA cap)
+        "total_with_uber":         5060,   # income_recurring + uber_income
+        "available_with_uber":     2169,   # total_with_uber - fixed_total - cc_minimums
+        "gap_after_uber_no_cuts":   991,   # variable_total - available_with_uber
+        "variable_target_cut":     1960,   # variable_total - 1200 cuts
+        "surplus_if_cut":           209,   # available_with_uber - variable_target_cut
+        "surplus_aggressive":       509,   # available_with_uber - (variable_total - 1500)
         # ── Section 6: May rent ───────────────────────────────
         "rent_due_date":   "Friday, May 1, 2026",
         "rent_amount":      2317,
@@ -996,15 +1000,18 @@ def budget_summary():
         abs(sum(h["interest"] for h in cc_net_history)), 2
     )
 
-    # ── Chart 7: debt projection (hardcoded math from data dict) ─────────
-    _debt = data["debt_total"]
-    _gap  = data["gap_without_earned"]
-    _surplus = data["surplus_if_cut"]
+    # ── Chart 7: debt projection (12 months; realistic Uber + cut scenarios) ─
+    _debt        = data["debt_total"]
+    _gap         = data["gap_without_earned"]   # 2281 — no Uber, no cuts
+    _surplus     = data["surplus_if_cut"]       # 209  — Uber + $1,200 cuts
+    _surplus_agg = data["surplus_aggressive"]   # 509  — Uber + $1,500 cuts
     data["projection_months"] = [
-        "Apr '26", "May '26", "Jun '26", "Jul '26", "Aug '26", "Sep '26", "Oct '26"
+        "Apr '26", "May '26", "Jun '26", "Jul '26", "Aug '26", "Sep '26",
+        "Oct '26", "Nov '26", "Dec '26", "Jan '27", "Feb '27", "Mar '27",
     ]
-    data["proj_no_uber"]   = [round(_debt + i * _gap, 2)     for i in range(7)]
-    data["proj_with_uber"] = [round(max(0, _debt - i * _surplus), 2) for i in range(7)]
+    data["proj_no_uber"]    = [round(_debt + i * _gap, 2)          for i in range(12)]
+    data["proj_with_uber"]  = [round(max(0, _debt - i * _surplus), 2)     for i in range(12)]
+    data["proj_aggressive"] = [round(max(0, _debt - i * _surplus_agg), 2) for i in range(12)]
 
     return render_template("budget_summary.html", **data)
 
