@@ -558,6 +558,14 @@
             <span>Total Debt</span>
             <span>{{ debt_total | currency }}</span>
           </div>
+          <div class="dl-total" style="font-weight:400;font-size:0.88rem;color:var(--muted);border-top:1px dashed var(--rule);padding-top:0.4rem;margin-top:0.25rem">
+            <span>After CareCredit clearance</span>
+            <span class="amt-pos">{{ cc_debt_after_carecredit | currency }}</span>
+          </div>
+          <p class="caveat" style="margin-top:0.5rem">
+            Mom has committed to a one-time payment to clear the CareCredit balance (${{ "{:,.2f}".format(carecredit_balance) }}).
+            This reduces total CC debt by 39% — from ${{ "{:,.2f}".format(debt_total) }} to ${{ "{:,.2f}".format(cc_debt_after_carecredit) }}.
+          </p>
         </div>
 
         <div class="headline">
@@ -631,6 +639,39 @@
           <canvas id="paydown-chart" height="110" aria-label="Card balances before and after paydown"></canvas>
           <p class="chart-caption">Statement closing vs. current balance per card. Red indicates interest-driven increase.</p>
         </div>
+
+        <table id="cc-totals" class="amt-table" style="margin-top:1.5rem">
+          <thead>
+            <tr>
+              <th>Card</th>
+              <th>Current Balance</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for name, balance in debt_accounts %}
+            <tr>
+              <td>{{ name }}</td>
+              <td>{{ balance | currency }}</td>
+              {% if name == "CareCredit" %}
+              <td class="amt-pos" style="font-style:italic">Mom paying — committed</td>
+              {% else %}
+              <td style="color:var(--muted)">—</td>
+              {% endif %}
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="2">Total (current)</td>
+              <td>${{ "{:,.2f}".format(debt_total) }}</td>
+            </tr>
+            <tr>
+              <td colspan="2">After CareCredit clearance</td>
+              <td class="amt-pos">${{ "{:,.2f}".format(cc_debt_after_carecredit) }}</td>
+            </tr>
+          </tfoot>
+        </table>
       </section>
 
       <!-- ══════════════════════════════════════════════════════
@@ -734,7 +775,7 @@
             Without Uber, average monthly spending exceeds available income by
             <strong>${{ "{:,.0f}".format(variable_total - available_for_variable) }}/mo</strong>.
             With Uber online, the gap shrinks to ${{ "{:,.0f}".format(gap_after_uber_no_cuts) }}/mo.
-            To close it entirely, spending needs to drop ~$1,200/mo — to roughly $1,960/mo.
+            To close it entirely, spending needs to drop ~$1,000/mo — to roughly $2,160/mo.
             Likely targets: dining and DoorDash (~$300 cuttable), Amazon impulse buys
             (~$125 cuttable), unused subscriptions, tighter grocery discipline.
           </p>
@@ -763,7 +804,7 @@
           {# ── Waterfall 1: Current — no Uber, no cuts ── #}
           <div>
             <p class="scenario-label" style="margin-bottom:0.5rem">Current: no Uber income, spending unchanged</p>
-            <svg id="gap-svg-1" viewBox="0 0 480 123" style="width:100%;max-width:480px;display:block" aria-label="Current monthly gap: $2,281">
+            <svg id="gap-svg-1" viewBox="0 0 480 123" style="width:100%;max-width:480px;display:block" aria-label="Current monthly gap: $2,137">
               <rect x="0" y="0"   width="{{ (income_recurring/_sc*_bw)|int }}" height="15" rx="2" fill="rgba(58,125,68,0.65)"/>
               <text x="345" y="12" font-family="Inter,sans-serif" font-size="10" fill="#666">Income ${{ "{:,.0f}".format(income_recurring) }}</text>
               <rect x="0" y="20"  width="{{ (fixed_total/_sc*_bw)|int }}" height="15" rx="2" fill="rgba(168,50,50,0.5)"/>
@@ -784,7 +825,7 @@
           {# ── Waterfall 2: With Uber ($1,290/mo), no cuts ── #}
           <div>
             <p class="scenario-label" style="margin-bottom:0.5rem">With Uber (${{ "{:,.0f}".format(uber_income) }}/mo): gap shrinks by more than half</p>
-            <svg id="gap-svg-2" viewBox="0 0 480 123" style="width:100%;max-width:480px;display:block" aria-label="With Uber income, gap reduces to $991">
+            <svg id="gap-svg-2" viewBox="0 0 480 123" style="width:100%;max-width:480px;display:block" aria-label="With Uber income, gap reduces to $847">
               <rect x="0" y="0"   width="{{ (income_with_uber/_sc*_bw)|int }}" height="15" rx="2" fill="rgba(58,125,68,0.65)"/>
               <text x="345" y="12" font-family="Inter,sans-serif" font-size="10" fill="#666">Income ${{ "{:,.0f}".format(income_with_uber) }}</text>
               <rect x="0" y="20"  width="{{ (fixed_total/_sc*_bw)|int }}" height="15" rx="2" fill="rgba(168,50,50,0.5)"/>
@@ -802,10 +843,10 @@
             </svg>
           </div>
 
-          {# ── Waterfall 3: Uber + $1,200 cuts → surplus ── #}
+          {# ── Waterfall 3: Uber + $1,000 cuts → surplus ── #}
           <div>
-            <p class="scenario-label" style="margin-bottom:0.5rem">With Uber + $1,200/mo spending cuts: break-even with ${{ "{:,.0f}".format(surplus_if_cut) }}/mo for CC paydown</p>
-            <svg id="gap-svg-3" viewBox="0 0 480 123" style="width:100%;max-width:480px;display:block" aria-label="With Uber and cuts, $209 monthly surplus">
+            <p class="scenario-label" style="margin-bottom:0.5rem">With Uber + $1,000/mo spending cuts: break-even with ${{ "{:,.0f}".format(surplus_if_cut) }}/mo for CC paydown</p>
+            <svg id="gap-svg-3" viewBox="0 0 480 123" style="width:100%;max-width:480px;display:block" aria-label="With Uber and cuts, $153 monthly surplus">
               <rect x="0" y="0"   width="{{ (income_with_uber/_sc*_bw)|int }}" height="15" rx="2" fill="rgba(58,125,68,0.65)"/>
               <text x="345" y="12" font-family="Inter,sans-serif" font-size="10" fill="#666">Income ${{ "{:,.0f}".format(income_with_uber) }}</text>
               <rect x="0" y="20"  width="{{ (fixed_total/_sc*_bw)|int }}" height="15" rx="2" fill="rgba(168,50,50,0.5)"/>
@@ -829,7 +870,7 @@
         <p class="chart-caption">
           The first chart shows our current monthly position. The second shows what changes
           when planned Uber income comes online. The third shows what happens when we also
-          bring variable spending down by ~$1,200/mo.
+          bring variable spending down by ~$1,000/mo.
           <strong>We need both Uber and cuts to reach a sustainable position.</strong>
         </p>
       </section>
@@ -890,6 +931,11 @@
           Without help, May rent cannot be fully paid by Friday.
           The next paycheck is pending but insufficient to close the gap alone.
         </p>
+        <p class="caveat" style="margin-top:0.75rem">
+          Separately, Mom has committed to a one-time payment to clear the CareCredit balance
+          of ${{ "{:,.2f}".format(carecredit_balance) }}. This is a distinct ask from the rent shortfall above —
+          the two can be handled independently and on different timelines.
+        </p>
       </section>
 
       <!-- ══════════════════════════════════════════════════════
@@ -908,48 +954,48 @@
           <span class="lever-title">Income — restart Uber driving</span>
           <p>
             Target $300/week (~$1,290/mo), starting this week. Within SSDI
-            earned-income limits. Uber alone halves the structural gap from
-            $2,281/mo to $991/mo. It does not solve the problem alone —
+            earned-income limits. Uber alone cuts the structural gap from
+            $2,137/mo to $847/mo. It does not solve the problem alone —
             spending cuts are also required.
           </p>
         </div>
 
         <div class="lever">
-          <span class="lever-title">Expenses — cut variable spending by ~$1,200/mo</span>
+          <span class="lever-title">Expenses — cut variable spending by ~$1,000/mo</span>
           <p>
-            Current variable spending averages $3,160/mo. Target: $1,960/mo.
+            Current variable spending averages $3,160/mo. Target: $2,160/mo.
             Specific cuts: dining and DoorDash ($300, mostly eliminable),
             Amazon impulse purchases ($125+), unused subscriptions, and
             tighter grocery discipline. Together with Uber, this produces
-            a $209/mo surplus for debt paydown.
+            a $153/mo surplus for debt paydown.
           </p>
         </div>
 
         <div class="lever">
-          <span class="lever-title">Debt — continue CareCredit paydown</span>
+          <span class="lever-title">Debt — CareCredit cleared, then continue paydown</span>
           <p>
-            CareCredit reduced by $1,000 in the last ten days. At a
-            $209/mo surplus, total CC debt of $4,488 clears in approximately
-            22 months. With more aggressive cuts ($1,500/mo, surplus $509),
-            payoff reaches around 9 months.
+            With Mom's commitment to clear CareCredit ($2,740.45), remaining CC debt
+            drops to $1,747.56 across four cards. At a $153/mo surplus (Uber + $1,000 cuts),
+            that clears in roughly 12 months. With more aggressive cuts ($1,200/mo, surplus $353),
+            payoff reaches 4-12 months depending on spending discipline.
           </p>
         </div>
 
         <p class="lede" style="margin-top: 1.75rem;">
-          The realistic timeline is 18–22 months to become debt-free, with
-          consistent Uber income and disciplined spending. Each month with
-          both levers active reduces the balance and the structural pressure.
-          The goal is to stop needing external help entirely — not just to
-          make it through one more month.
+          With CareCredit cleared, the realistic timeline to become debt-free is
+          4–12 months — a significant improvement from where we were. The rent help
+          is expected to taper off in 3–4 months as Uber income ramps; by then,
+          the structural gap should be closed or nearly closed. The goal is to stop
+          needing external help entirely — not just to make it through one more month.
         </p>
 
         <div class="chart-wrap">
           <canvas id="projection-chart" height="130" aria-label="6-month debt projection"></canvas>
           <p class="chart-caption">
-            Three trajectories from today's ${{ "{:,.0f}".format(debt_total) }} CC balance.
-            <strong>Red:</strong> without changes, debt grows ${{ "{:,.0f}".format(gap_without_earned) }}/mo and becomes unmanageable within months.
-            <strong>Solid green:</strong> Uber + $1,200 cuts produces ${{ "{:,.0f}".format(surplus_if_cut) }}/mo surplus — debt clears in ~22 months.
-            <strong>Dotted green:</strong> with $1,500 in cuts, ${{ "{:,.0f}".format(surplus_aggressive) }}/mo surplus — debt clears in ~9 months.
+            Three trajectories from ${{ "{:,.0f}".format(cc_debt_after_carecredit) }} remaining CC debt (after CareCredit clearance).
+            <strong>Red:</strong> without Uber or cuts, debt grows ${{ "{:,.0f}".format(gap_without_earned) }}/mo and becomes unmanageable within months.
+            <strong>Solid green:</strong> Uber + $1,000 cuts produces ${{ "{:,.0f}".format(surplus_if_cut) }}/mo surplus — debt clears in ~12 months.
+            <strong>Dotted green:</strong> with $1,200 cuts, ${{ "{:,.0f}".format(surplus_aggressive) }}/mo surplus — debt clears in 4–5 months.
           </p>
         </div>
       </section>
@@ -1066,17 +1112,17 @@
       data: {
         labels: projMonths,
         datasets: [
-          { label: 'Without Uber or cuts (gap +$2,281/mo)',
+          { label: 'Without Uber or cuts (gap +$2,137/mo)',
             data: projNoUber,
             borderColor: 'rgba(168,50,50,0.8)',
             backgroundColor: 'transparent',
             tension: 0, pointRadius: 3 },
-          { label: 'Uber + $1,200 cuts (surplus −$209/mo)',
+          { label: 'Uber + $1,000 cuts (surplus −$153/mo)',
             data: projWithUber,
             borderColor: 'rgba(58,125,68,0.8)',
             backgroundColor: 'rgba(58,125,68,0.06)',
             fill: true, tension: 0, pointRadius: 3 },
-          { label: 'Uber + $1,500 cuts (surplus −$509/mo)',
+          { label: 'Uber + $1,200 cuts (surplus −$353/mo)',
             data: projAggressive,
             borderColor: 'rgba(58,125,68,0.5)',
             backgroundColor: 'transparent',

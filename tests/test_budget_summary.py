@@ -28,7 +28,7 @@ def test_budget_summary_shows_rent_shortfall(client):
 
 def test_budget_summary_shows_structural_gap(client):
     resp = client.get("/budget-summary")
-    assert b"2,281" in resp.data
+    assert b"2,137" in resp.data
 
 
 def test_budget_summary_has_seven_sections(client):
@@ -120,17 +120,17 @@ def test_budget_summary_shows_income_with_uber(client):
 
 def test_budget_summary_shows_available_with_uber_updated(client):
     resp = client.get("/budget-summary")
-    assert b"2,169" in resp.data
+    assert b"2,313" in resp.data
 
 
 def test_budget_summary_shows_gap_after_uber(client):
     resp = client.get("/budget-summary")
-    assert b"991" in resp.data
+    assert b"847" in resp.data
 
 
 def test_budget_summary_shows_surplus_realistic(client):
     resp = client.get("/budget-summary")
-    assert b"209" in resp.data
+    assert b"153" in resp.data
 
 
 def test_section5_has_three_waterfalls(client):
