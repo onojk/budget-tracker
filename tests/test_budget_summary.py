@@ -60,3 +60,46 @@ def test_budget_summary_has_slide_mode_assets(client):
     assert b"scroll-mode" in resp.data
     assert b"slide-mode" in resp.data
     assert b"togglePresentationMode" in resp.data
+
+
+# ── Chart presence tests (Commit C → all fail until Commit D) ──────────────
+
+
+def test_charts_has_chartjs_cdn(client):
+    resp = client.get("/budget-summary")
+    assert b"chart.umd.min.js" in resp.data
+
+
+def test_section1_has_cc_net_chart(client):
+    resp = client.get("/budget-summary")
+    assert b"cc-net-chart" in resp.data
+
+
+def test_section2_has_paydown_chart(client):
+    resp = client.get("/budget-summary")
+    assert b"paydown-chart" in resp.data
+
+
+def test_section3_has_income_chart(client):
+    resp = client.get("/budget-summary")
+    assert b"income-chart" in resp.data
+
+
+def test_section4_has_variable_svg_bars(client):
+    resp = client.get("/budget-summary")
+    assert b"var-bar" in resp.data
+
+
+def test_section5_has_gap_svg(client):
+    resp = client.get("/budget-summary")
+    assert b"gap-svg" in resp.data
+
+
+def test_section6_has_rent_progress(client):
+    resp = client.get("/budget-summary")
+    assert b"rent-progress" in resp.data
+
+
+def test_section7_has_projection_chart(client):
+    resp = client.get("/budget-summary")
+    assert b"projection-chart" in resp.data
