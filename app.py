@@ -929,8 +929,10 @@ def budget_summary():
         "income_items": [
             ("Spouse payroll (Millennium Health, biweekly)", 3670, False),
             ("Music royalties (PayPal)", 100, False),
-            ("Uber driving (restarting, ~$300/wk target)", 1290, False),
+            ("Uber driving (self-employment, ~$300/wk)", 1290, False),
         ],
+        "sga_limit":        1620,   # 2026 SGA threshold (non-blind)
+        "esports_end_date": "April 24, 2026",
         "income_recurring":     3770,   # spouse + royalties only (certain income)
         "uber_gas_increment":    360,   # incremental gas for Uber driving (500 mi/wk, 27 MPG, $4.50/gal)
         "uber_maintenance":       75,   # vehicle maintenance set-aside

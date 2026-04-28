@@ -717,11 +717,25 @@
             <span>~${{ "{:,.0f}".format(income_with_uber_net) }}/mo</span>
           </div>
         </div>
-        <p class="caveat" style="margin-top: 0.5rem; margin-bottom: 1.5rem;">
-          Esports consulting ended April 2026. Uber driving restarting this
-          week with a target of $300/week (~$1,290/mo) — equivalent to roughly
-          the prior earned income. Within SSDI earned-income limits.
+        <p class="caveat" style="margin-top: 0.5rem; margin-bottom: 0.75rem;">
+          Unified Esports payroll concluded {{ esports_end_date }} — final deposit received.
+          Uber driving is now the sole earned income source going forward,
+          targeting ~$300/week (~$1,290/mo gross, ~$855/mo net of vehicle costs).
         </p>
+
+        <!-- ── SGA compliance callout ──────────────────────────── -->
+        <div style="background:#f0f7ff;border-left:3px solid #3b82f6;padding:0.65rem 1rem;border-radius:0 6px 6px 0;font-family:var(--font-ui);font-size:0.85rem;line-height:1.55;margin-bottom:1.5rem">
+          <strong>SGA Monitoring (SSDI):</strong>
+          The 2026 Substantial Gainful Activity limit is ${{ "{:,.0f}".format(sga_limit) }}/mo for
+          non-blind individuals. Only the user's own earned income counts toward SGA —
+          wife's payroll and music royalties are excluded.
+          Uber driving is self-employment income: for SGA purposes, gross earnings are
+          reduced by allowable business expenses including IRS standard mileage
+          (${0.67}/mile for 2026), gas, and maintenance. At the ~$300/week driving target,
+          net SGA-counted Uber income remains comfortably under the ${{ "{:,.0f}".format(sga_limit) }} limit.
+          <em>User to verify self-employment SGA methodology directly with SSA and
+          track per-shift mileage for documentation.</em>
+        </div>
 
         <div class="dl-group">
           <p class="dl-group-label">Fixed Monthly Expenses</p>
