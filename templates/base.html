@@ -25,6 +25,8 @@
   <div class="nav-links">
     <a href="{{ "/dashboard" }}"
        class="{% if request.endpoint == 'dashboard' %}active{% endif %}">Dashboard</a>
+    <a href="{{ url_for('budget_summary') }}"
+       class="{% if request.endpoint == 'budget_summary' %}active{% endif %}">Budget Plan</a>
     <a href="{{ url_for('transactions') }}"
        class="{% if request.endpoint == 'transactions' %}active{% endif %}">Transactions</a>
     
