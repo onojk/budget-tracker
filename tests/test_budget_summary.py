@@ -28,7 +28,7 @@ def test_budget_summary_shows_rent_shortfall(client):
 
 def test_budget_summary_shows_structural_gap(client):
     resp = client.get("/budget-summary")
-    assert b"2,137" in resp.data
+    assert b"2,431" in resp.data
 
 
 def test_budget_summary_has_seven_sections(client):
@@ -115,22 +115,22 @@ def test_budget_summary_shows_uber_realistic_income(client):
 
 def test_budget_summary_shows_income_with_uber(client):
     resp = client.get("/budget-summary")
-    assert b"5,060" in resp.data
+    assert b"4,625" in resp.data
 
 
 def test_budget_summary_shows_available_with_uber_updated(client):
     resp = client.get("/budget-summary")
-    assert b"2,313" in resp.data
+    assert b"1,878" in resp.data
 
 
 def test_budget_summary_shows_gap_after_uber(client):
     resp = client.get("/budget-summary")
-    assert b"847" in resp.data
+    assert b"1,432" in resp.data
 
 
 def test_budget_summary_shows_surplus_realistic(client):
     resp = client.get("/budget-summary")
-    assert b"153" in resp.data
+    assert b"+$68" in resp.data
 
 
 def test_section5_has_three_waterfalls(client):
@@ -158,7 +158,7 @@ def test_section2_has_totals_table(client):
 
 def test_section5_updated_available_with_uber(client):
     resp = client.get("/budget-summary")
-    assert b"2,313" in resp.data
+    assert b"1,878" in resp.data
 
 
 def test_section6_notes_carecredit_separately(client):
@@ -169,3 +169,51 @@ def test_section6_notes_carecredit_separately(client):
 def test_section7_shows_updated_payoff_timeline(client):
     resp = client.get("/budget-summary")
     assert b"4-12" in resp.data
+
+
+# ── Net Uber + gas recompute + transportation category (Commit I → fail until J) ──
+
+
+def test_section3_shows_uber_gas_deduction(client):
+    resp = client.get("/budget-summary")
+    assert b"incremental gas" in resp.data
+
+
+def test_section3_shows_maintenance_deduction(client):
+    resp = client.get("/budget-summary")
+    assert b"maintenance set" in resp.data
+
+
+def test_section3_shows_net_income_total(client):
+    resp = client.get("/budget-summary")
+    assert b"4,625" in resp.data
+
+
+def test_section4_has_gas_transport_line(client):
+    resp = client.get("/budget-summary")
+    assert b"Gas/Transportation" in resp.data
+
+
+def test_section4_shows_updated_variable_total(client):
+    resp = client.get("/budget-summary")
+    assert b"3,310" in resp.data
+
+
+def test_section5_waterfall1_updated_gap(client):
+    resp = client.get("/budget-summary")
+    assert b"2,431" in resp.data
+
+
+def test_section5_waterfall2_updated_gap(client):
+    resp = client.get("/budget-summary")
+    assert b"1,432" in resp.data
+
+
+def test_section7_shows_realistic_shortfall(client):
+    resp = client.get("/budget-summary")
+    assert b"$232" in resp.data
+
+
+def test_section5_shows_two_cut_scenarios(client):
+    resp = client.get("/budget-summary")
+    assert b"gap-svg-3b" in resp.data
