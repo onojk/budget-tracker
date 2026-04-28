@@ -780,14 +780,12 @@
             <span>~${{ "{:,.0f}".format(variable_total) }}/mo</span>
           </div>
           <p class="chart-caption" style="margin-top:0.6rem">
-            Gas spending was partially hidden in the "Other" category previously.
-            With this reorganization, true transportation cost is now visible at ~$300/mo
-            for normal household driving. Without Uber, average monthly spending exceeds
-            available income by <strong>${{ "{:,.0f}".format(variable_total - available_for_variable) }}/mo</strong>.
-            With Uber (net of vehicle costs), the gap narrows to ${{ "{:,.0f}".format(gap_after_uber_no_cuts) }}/mo.
-            Break-even requires ~$1,200/mo in spending cuts; full surplus requires ~$1,500/mo.
-            Likely targets: dining and DoorDash (~$300 cuttable), Amazon impulse buys
-            (~$125 cuttable), unused subscriptions, tighter grocery discipline.
+            Dining is now split honestly: $500/mo DoorDash/delivery (actual 6-month average)
+            and $300/mo direct dining (Starbucks, Panera, fast food). Without Uber, monthly
+            spending exceeds available income by <strong>${{ "{:,.0f}".format(variable_total - available_for_variable) }}/mo</strong>.
+            With Uber (net of vehicle costs), the gap narrows to ${{ "{:,.0f}".format(gap_after_uber_no_cuts) }}/mo —
+            still a significant shortfall. Break-even requires ${{ "{:,.0f}".format(cuts_for_break_even) }}/mo in cuts,
+            principally eliminating DoorDash ($450/mo) plus ${{ "{:,.0f}".format(cuts_for_break_even - doordash_monthly_savings) }}/mo more.
           </p>
         </div>
       </section>
@@ -964,10 +962,10 @@
             </svg>
           </div>
 
-          {# ── Waterfall 3b: Uber + $1,500 cuts — first surplus ── #}
+          {# ── Waterfall 3b: Uber + $1,882 cuts — break-even ── #}
           <div>
-            <p class="scenario-label" style="margin-bottom:0.5rem">With Uber + $1,500/mo cuts: first surplus — +${{ "{:,.0f}".format(surplus_aggressive) }}/mo for paydown</p>
-            <svg id="gap-svg-3b" viewBox="0 0 480 123" style="width:100%;max-width:480px;display:block" aria-label="With Uber and $1,500 cuts, $68 monthly surplus">
+            <p class="scenario-label" style="margin-bottom:0.5rem">Break-even: Uber + ${{ "{:,.0f}".format(cuts_for_break_even) }}/mo cuts — ${{ "{:,.0f}".format(variable_aggressive_cut) }}/mo variable spending, gap reaches $0</p>
+            <svg id="gap-svg-3b" viewBox="0 0 480 123" style="width:100%;max-width:480px;display:block" aria-label="Break-even with Uber and $1,882 in cuts">
               <rect x="0" y="0"   width="{{ (income_with_uber/_sc*_bw)|int }}" height="15" rx="2" fill="rgba(58,125,68,0.65)"/>
               <text x="345" y="12" font-family="Inter,sans-serif" font-size="10" fill="#666">Income (net) ${{ "{:,.0f}".format(income_with_uber) }}</text>
               <rect x="0" y="20"  width="{{ (fixed_total/_sc*_bw)|int }}" height="15" rx="2" fill="rgba(168,50,50,0.5)"/>
@@ -977,22 +975,22 @@
               <line x1="0" y1="58" x2="{{ _bw }}" y2="58" stroke="#e5e2da" stroke-width="1"/>
               <rect x="0" y="61"  width="{{ (available_with_uber/_sc*_bw)|int }}" height="15" rx="2" fill="rgba(58,125,68,0.38)"/>
               <text x="345" y="73" font-family="Inter,sans-serif" font-size="10" fill="#666">Available ${{ "{:,.0f}".format(available_with_uber) }}</text>
-              <rect x="0" y="81"  width="{{ (variable_aggressive_cut/_sc*_bw)|int }}" height="15" rx="2" fill="rgba(168,140,0,0.5)"/>
+              <rect x="0" y="81"  width="{{ (variable_aggressive_cut/_sc*_bw)|int }}" height="15" rx="2" fill="rgba(58,125,68,0.4)"/>
               <text x="345" y="93" font-family="Inter,sans-serif" font-size="10" fill="#666">Variable (cut) −${{ "{:,.0f}".format(variable_aggressive_cut) }}</text>
               <line x1="0" y1="99" x2="{{ _bw }}" y2="99" stroke="#e5e2da" stroke-width="1"/>
-              {% set _sw = 20 if (surplus_aggressive/_sc*_bw)|int < 20 else (surplus_aggressive/_sc*_bw)|int %}
-              <rect x="0" y="102" width="{{ _sw }}" height="15" rx="2" fill="rgba(58,125,68,0.85)"/>
-              <text x="345" y="114" font-family="Inter,sans-serif" font-size="11" font-weight="600" fill="#3a7d44">Surplus +${{ "{:,.0f}".format(surplus_aggressive) }}/mo</text>
+              <rect x="0" y="102" width="20" height="15" rx="2" fill="rgba(58,125,68,0.85)"/>
+              <text x="345" y="114" font-family="Inter,sans-serif" font-size="11" font-weight="600" fill="#3a7d44">Break-even ±$0/mo</text>
             </svg>
           </div>
 
         </div>
 
         <p class="chart-caption">
-          Chart 1: current state (no Uber, full CC minimums). Chart 2: net Uber income after vehicle
-          costs, CareCredit cleared. Charts 3a–3b: the cut discipline required to reach break-even
-          ($1,200/mo cuts still leaves a $232 gap) and first surplus ($1,500/mo cuts, +$68/mo).
-          <strong>The honest math: break-even requires more discipline than previously shown.</strong>
+          Chart 1: current state (no Uber, full CC minimums, honest dining figures). Chart 2: net Uber income,
+          CareCredit cleared — gap still ${{ "{:,.0f}".format(gap_after_uber_no_cuts) }}/mo.
+          Chart 3a: Uber + $1,200 cuts — still ${{ "{:,.0f}".format(shortfall_realistic) }}/mo short.
+          Chart 3b: Uber + ${{ "{:,.0f}".format(cuts_for_break_even) }} cuts (DoorDash $450 + ${{ "{:,.0f}".format(cuts_for_break_even - doordash_monthly_savings) }} more) — break-even.
+          Any surplus requires exceeding these cuts or higher Uber income.
         </p>
       </section>
 
@@ -1077,39 +1075,40 @@
             Target $300/week (~$1,290/mo gross), starting this week. Within SSDI
             earned-income limits. After incremental gas (~$360/mo) and a vehicle
             maintenance set-aside (~$75/mo), net contribution is ~$855/mo. This
-            cuts the structural gap from $2,431/mo to $1,432/mo. It does not
+            cuts the structural gap from ${{ "{:,.0f}".format(gap_without_earned) }}/mo to ${{ "{:,.0f}".format(gap_after_uber_no_cuts) }}/mo. It does not
             solve the problem alone — spending cuts are also required.
           </p>
         </div>
 
         <div class="lever">
-          <span class="lever-title">Expenses — cut variable spending by $1,200–$1,500/mo</span>
+          <span class="lever-title">Expenses — cut variable spending by ~${{ "{:,.0f}".format(cuts_for_break_even) }}/mo</span>
           <p>
-            Current variable spending (now honestly including gas) averages $3,310/mo.
-            With $1,200/mo in cuts ($2,110/mo target): still $232/mo short even with Uber.
-            With $1,500/mo in cuts ($1,810/mo target): first surplus of +$68/mo for paydown.
-            Likely cuts: dining and DoorDash ($300), Amazon impulse ($125+), unused
-            subscriptions, tighter groceries. These cuts are significant and demand real change.
+            With honest dining figures, variable spending is ${{ "{:,.0f}".format(variable_total) }}/mo: DoorDash alone
+            runs ${{ "{:,}".format(doordash_monthly_norm) }}/mo. Eliminating DoorDash (${{ "{:,}".format(doordash_monthly_savings) }} saved) plus
+            ${{ "{:,.0f}".format(cuts_for_break_even - doordash_monthly_savings) }}/mo of additional cuts (other dining, Amazon, subscriptions) reaches break-even.
+            With $1,200/mo in cuts: still ${{ "{:,.0f}".format(shortfall_realistic) }}/mo short even with Uber.
+            Break-even is the minimum target — any debt paydown requires cutting beyond ${{ "{:,.0f}".format(cuts_for_break_even) }}/mo
+            or ramping Uber income higher.
           </p>
         </div>
 
         <div class="lever">
           <span class="lever-title">Debt — CareCredit cleared, then aggressive paydown</span>
           <p>
-            With Mom's commitment to clear CareCredit ($2,740.45), remaining CC debt
-            drops to $1,747.56 across four cards. At the aggressive scenario (+$68/mo surplus),
-            that clears in ~26 months. At truly disciplined cuts beyond $1,500/mo, faster.
-            The realistic ($1,200 cut) scenario still runs a $232/mo deficit — debt grows slowly
-            even with Uber. This is the honest math; it requires the aggressive scenario to move
-            toward payoff.
+            With Mom's commitment to clear CareCredit (${{ "{:,.2f}".format(carecredit_balance) }}), remaining CC debt
+            drops to ${{ "{:,.2f}".format(cc_debt_after_carecredit) }} across four cards. At break-even ($0 surplus),
+            debt holds steady. Paying it off requires cutting beyond break-even or growing Uber income.
+            The realistic ($1,200 cut) scenario still runs a ${{ "{:,.0f}".format(shortfall_realistic) }}/mo deficit —
+            debt continues growing slowly even with Uber. This is the honest math.
           </p>
         </div>
 
         <p class="lede" style="margin-top: 1.75rem;">
-          With CareCredit cleared and aggressive cuts in place, remaining debt clears in ~26 months.
-          The rent help is expected to taper off in 3–4 months as Uber income ramps. Even at the
-          realistic scenario, the monthly gap shrinks from $2,431 to $232 — external help needed
-          drops dramatically. These cuts are significant. The plan is achievable but demands real change.
+          The path to stability: Uber income reduces the gap from ${{ "{:,.0f}".format(gap_without_earned) }}/mo to
+          ${{ "{:,.0f}".format(gap_after_uber_no_cuts) }}/mo. From there, break-even requires ${{ "{:,.0f}".format(cuts_for_break_even) }}/mo in cuts —
+          driven primarily by stopping DoorDash (${{ "{:,}".format(doordash_monthly_savings) }}/mo alone).
+          These cuts are significant and demand real change in daily habits.
+          Any surplus beyond break-even directly accelerates debt payoff.
         </p>
 
         <div class="chart-wrap">
@@ -1117,8 +1116,8 @@
           <p class="chart-caption">
             Three trajectories from ${{ "{:,.0f}".format(cc_debt_after_carecredit) }} remaining CC debt (after CareCredit clearance).
             <strong>Red:</strong> without Uber or cuts, debt grows ${{ "{:,.0f}".format(gap_without_earned) }}/mo.
-            <strong>Amber:</strong> Uber + $1,200 cuts — still ${{ "{:,.0f}".format(shortfall_realistic) }}/mo deficit; debt continues to grow, but slowly.
-            <strong>Green:</strong> Uber + $1,500 cuts — first surplus of +${{ "{:,.0f}".format(surplus_aggressive) }}/mo; clears in ~26 months.
+            <strong>Amber:</strong> Uber + $1,200 cuts — still ${{ "{:,.0f}".format(shortfall_realistic) }}/mo deficit; debt grows slowly.
+            <strong>Green:</strong> Uber + ${{ "{:,.0f}".format(cuts_for_break_even) }} cuts (break-even) — debt holds flat. Any surplus requires cutting further or growing Uber income.
           </p>
         </div>
       </section>

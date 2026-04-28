@@ -946,40 +946,42 @@ def budget_summary():
         "available_after_fixed": 1123,
         # ── Section 4: Variable spending ──────────────────────
         "variable_items": [
-            ("Groceries (Walmart, Costco, Vons, Albertsons)",        1500),
-            ("Medical / Pet (Banfield, SuperCare, CVS, MyScripps)",   550),
-            ("Dining / Fast Food (DoorDash, Starbucks, etc.)",        300),
-            ("Amazon (online orders)",                                  200),
-            ("Insurance (Geico)",                                        91),
-            ("Therapy (recurring)",                                      85),
-            ("Subscriptions (Hulu, Paramount, etc.)",                   80),
-            ("Charitable giving (church)",                               54),
-            ("Gas/Transportation (Arco, Costco Gas, Chevron)",          300),
-            ("Other / uncategorized",                                   150),
+            ("Groceries (Walmart, Costco, Vons, Albertsons)",         1500),
+            ("Medical / Pet (Banfield, SuperCare, CVS, MyScripps)",    550),
+            ("DoorDash / Delivery (current rate, 6-mo avg)",           500),
+            ("Other Dining / Cafes (Starbucks, Panera, fast food)",    300),
+            ("Amazon (online orders)",                                   200),
+            ("Insurance (Geico)",                                         91),
+            ("Therapy (recurring)",                                       85),
+            ("Subscriptions (Hulu, Paramount, etc.)",                    80),
+            ("Charitable giving (church)",                                54),
+            ("Gas/Transportation (Arco, Costco Gas, Chevron)",           300),
+            ("Other / uncategorized",                                    100),
         ],
-        "variable_total": 3310,
+        "variable_total": 3760,
         # ── Section 5: Structural gap ─────────────────────────
         "cc_minimums":              100,    # post-CareCredit (Wf2, Wf3)
         "cc_minimums_current":      244,    # pre-CareCredit clearance, current state (Wf1)
         "available_for_variable":   879,   # Wf1: income_recurring - fixed - cc_minimums_current
-        "gap_without_earned":      2431,   # Wf1: variable_total - available_for_variable
+        "gap_without_earned":      2881,   # Wf1: variable_total(3760) - available_for_variable(879)
         "uber_income":             1290,   # $300/wk gross
         "total_with_uber":         5060,   # kept for reference; income_with_uber (net) = 4625
         "available_with_uber":     1878,   # Wf2: income_with_uber_net - fixed - cc_minimums
-        "gap_after_uber_no_cuts":  1432,   # Wf2: variable_total - available_with_uber
-        # Wf3a: $1,200/mo cuts — realistic; still short
-        "variable_realistic_cut":  2110,   # variable_total - 1200
-        "shortfall_realistic":      232,   # variable_realistic_cut - available_with_uber (gap remains!)
-        # Wf3b: $1,500/mo cuts — aggressive; first scenario with surplus
-        "variable_aggressive_cut": 1810,   # variable_total - 1500
-        "surplus_aggressive":        68,   # available_with_uber - variable_aggressive_cut
+        "gap_after_uber_no_cuts":  1882,   # Wf2: variable_total(3760) - available_with_uber(1878)
+        # Wf3a: $1,200/mo cuts — still short
+        "variable_realistic_cut":  2560,   # variable_total(3760) - 1200
+        "shortfall_realistic":      682,   # variable_realistic_cut(2560) - available_with_uber(1878)
+        # Wf3b: break-even — $1,882 in cuts reaches $0 surplus
+        "variable_aggressive_cut": 1878,   # break-even: variable_total(3760) - 1882
+        "cuts_for_break_even":     1882,   # how much must be cut to reach $0
+        "surplus_aggressive":         0,   # break-even: exactly $0/mo surplus
         # ── DoorDash Reality Check (between S4 and S5) ───────
-        "doordash_total":           9366,    # total spent Mar 2025 – Apr 2026 (13.8 mo)
+        "doordash_total":           9366,    # total spent Mar 2025 – Apr 2026 (14 mo)
         "doordash_orders":          240,     # total orders
-        "doordash_monthly_norm":    560,     # ~$560/mo normalized (excl Jul 2025 spike)
+        "doordash_monthly_norm":    500,     # ~$500/mo (6-mo trend avg; excl Jul 2025 spike = $591)
         "doordash_target":           50,     # target monthly cap
-        "doordash_monthly_savings": 510,     # 560 - 50
-        "doordash_annual_savings":  6120,    # 510 × 12
+        "doordash_monthly_savings": 450,     # 500 - 50
+        "doordash_annual_savings":  5400,    # 450 × 12
         # ── Section 6: May rent ───────────────────────────────
         "rent_due_date":   "Friday, May 1, 2026",
         "rent_amount":      2317,

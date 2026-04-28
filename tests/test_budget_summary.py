@@ -28,7 +28,7 @@ def test_budget_summary_shows_rent_shortfall(client):
 
 def test_budget_summary_shows_structural_gap(client):
     resp = client.get("/budget-summary")
-    assert b"2,431" in resp.data
+    assert b"2,881" in resp.data
 
 
 def test_budget_summary_has_seven_sections(client):
@@ -125,12 +125,12 @@ def test_budget_summary_shows_available_with_uber_updated(client):
 
 def test_budget_summary_shows_gap_after_uber(client):
     resp = client.get("/budget-summary")
-    assert b"1,432" in resp.data
+    assert b"1,882" in resp.data
 
 
-def test_budget_summary_shows_surplus_realistic(client):
+def test_budget_summary_shows_break_even_scenario(client):
     resp = client.get("/budget-summary")
-    assert b"+$68" in resp.data
+    assert b"Break-even" in resp.data
 
 
 def test_section5_has_three_waterfalls(client):
@@ -166,9 +166,9 @@ def test_section6_notes_carecredit_separately(client):
     assert b"Separately" in resp.data
 
 
-def test_section7_shows_updated_payoff_timeline(client):
+def test_section7_shows_break_even_framing(client):
     resp = client.get("/budget-summary")
-    assert b"~26" in resp.data
+    assert b"break-even" in resp.data
 
 
 # ── Net Uber + gas recompute + transportation category (Commit I → fail until J) ──
@@ -196,22 +196,22 @@ def test_section4_has_gas_transport_line(client):
 
 def test_section4_shows_updated_variable_total(client):
     resp = client.get("/budget-summary")
-    assert b"3,310" in resp.data
+    assert b"3,760" in resp.data
 
 
 def test_section5_waterfall1_updated_gap(client):
     resp = client.get("/budget-summary")
-    assert b"2,431" in resp.data
+    assert b"2,881" in resp.data
 
 
 def test_section5_waterfall2_updated_gap(client):
     resp = client.get("/budget-summary")
-    assert b"1,432" in resp.data
+    assert b"1,882" in resp.data
 
 
 def test_section7_shows_realistic_shortfall(client):
     resp = client.get("/budget-summary")
-    assert b"$232" in resp.data
+    assert b"$682" in resp.data
 
 
 def test_section5_shows_two_cut_scenarios(client):
@@ -254,7 +254,7 @@ def test_doordash_shows_contradiction_framing(client):
 
 def test_doordash_shows_monthly_normalized(client):
     resp = client.get("/budget-summary")
-    assert b"560" in resp.data
+    assert b"500" in resp.data
 
 
 def test_doordash_shows_reduction_target(client):
@@ -264,7 +264,7 @@ def test_doordash_shows_reduction_target(client):
 
 def test_doordash_shows_annual_savings(client):
     resp = client.get("/budget-summary")
-    assert b"6,120" in resp.data
+    assert b"5,400" in resp.data
 
 
 def test_doordash_shows_uber_hours_equivalence(client):
